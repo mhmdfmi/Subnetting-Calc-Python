@@ -127,33 +127,33 @@ def parse_arguments() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[global_parser],
         epilog="""Examples:
-  python subnet_calc.py --help (show this help)
-  python subnet_calc.py count --network 192.168.1.0/24
-  python subnet_calc.py count --network 192.168.1.0/24 --count 4
-  python subnet_calc.py count --network 192.168.1.0/24 --prefix 26
-  python subnet_calc.py count --network 192.168.1.0/24 --hosts "100,50,20"
-  python subnet_calc.py vlsm --network 10.0.0.0/16 --hosts "500,200,100,50"
-  python subnet_calc.py supernet --networks "192.168.1.0/24,192.168.2.0/24"
-  python subnet_calc.py reverse --hosts "100,50" --version v4
-  python subnet_calc.py overlap --networks "192.168.1.0/24,192.168.2.0/24"
-  python subnet_calc.py eui64 --mac "00:11:22:33:44:55" --prefix "2001:db8::/64"
-  python subnet_calc.py --config config.yaml --scenario home_vlsm
-  python subnet_calc.py --config config.yaml --scenario office_split
-  python subnet_calc.py --config config.yaml --scenario ipv6_deployment
-  python subnet_calc.py --config config.yaml --scenario home_vlsm --version v4
+  subnet-calc --help (show this help)
+  subnet-calc count --network 192.168.1.0/24
+  subnet-calc count --network 192.168.1.0/24 --count 4
+  subnet-calc count --network 192.168.1.0/24 --prefix 26
+  subnet-calc count --network 192.168.1.0/24 --hosts "100,50,20"
+  subnet-calc vlsm --network 10.0.0.0/16 --hosts "500,200,100,50"
+  subnet-calc supernet --networks "192.168.1.0/24,192.168.2.0/24"
+  subnet-calc reverse --hosts "100,50" --version v4
+  subnet-calc overlap --networks "192.168.1.0/24,192.168.2.0/24"
+  subnet-calc eui64 --mac "00:11:22:33:44:55" --prefix "2001:db8::/64"
+  subnet-calc --config config.yaml --scenario home_vlsm
+  subnet-calc --config config.yaml --scenario office_split
+  subnet-calc --config config.yaml --scenario ipv6_deployment
+  subnet-calc --config config.yaml --scenario home_vlsm --version v4
 
   IPv6 Examples:
-  python subnet_calc.py count --network 2001:db8::/32 --version v6 --count 2
-  python subnet_calc.py vlsm --network 2001:db8::/48 --hosts "1000,500" --version v6
-  python subnet_calc.py eui64 --mac "00:11:22:33:44:55" --prefix "2001:db8::/64"
+  subnet-calc count --network 2001:db8::/32 --version v6 --count 2
+  subnet-calc vlsm --network 2001:db8::/48 --hosts "1000,500" --version v6
+  subnet-calc eui64 --mac "00:11:22:33:44:55" --prefix "2001:db8::/64"
 
   Output Formats:
-  python subnet_calc.py --format table count --network 192.168.1.0/24
-  python subnet_calc.py --format json --output results.json vlsm --network 10.0.0.0/16 --hosts "500,200"
-  python subnet_calc.py --format csv --output subnets.csv count --network 192.168.1.0/24
+  subnet-calc --format table count --network 192.168.1.0/24
+  subnet-calc --format json --output results.json vlsm --network 10.0.0.0/16 --hosts "500,200"
+  subnet-calc --format csv --output subnets.csv count --network 192.168.1.0/24
 
   Interactive Mode:
-  python subnet_calc.py --interactive
+  subnet-calc --interactive
         """,
     )
 
