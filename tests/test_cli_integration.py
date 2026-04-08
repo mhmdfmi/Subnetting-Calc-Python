@@ -1,4 +1,7 @@
+import os
 import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from subnet_calc import main
 
@@ -87,4 +90,46 @@ def test_cli_eui64_command(monkeypatch, capsys):
 
     assert exit_code == 0
     assert "EUI-64 IPv6 address:" in captured.out
+
+
+def test_cli_version_command(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["subnet_calc.py", "version"])
+    exit_code = main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "subnet-calc version" in captured.out
+
+
+def test_cli_range_command(monkeypatch, capsys):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["subnet_calc.py", "range", "--network", "192.168.1.0/24"],
+    )
+    exit_code = main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "First host:" in captured.out
+
+
+def test_cli_compare_command(monkeypatch, capsys):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "subnet_calc.py",
+            "compare",
+            "--network1",
+            "192.168.1.0/24",
+            "--network2",
+            "192.168.1.0/25",
+        ],
+    )
+    exit_code = main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "contains" in captured.out
 

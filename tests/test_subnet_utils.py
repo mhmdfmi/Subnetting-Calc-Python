@@ -1,5 +1,9 @@
 import ipaddress
+import os
+import sys
 import pytest
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from subnet_utils import (
     calculate_subnets,
@@ -22,6 +26,11 @@ from subnet_utils import (
     output_json,
     output_csv,
     output_table,
+    network_to_range,
+    summarize_address_range,
+    compare_networks,
+    compress_ipv6,
+    expand_ipv6,
 )
 
 
@@ -172,4 +181,34 @@ def test_find_supernet_ipv6():
     nets = [ipaddress.ip_network("2001:db8::/32"), ipaddress.ip_network("2001:db9::/32")]
     supernet = find_supernet(nets)
     assert supernet.prefixlen == 31
+
+
+def test_network_to_range():
+    network = ipaddress.ip_network("192.168.1.0/24")
+    first_host, last_host, total = network_to_range(network)
+    assert first_host == "192.168.1.1"
+    assert last_host == "192.168.1.254"
+    assert total == 256
+
+
+def test_summarize_address_range():
+    nets = summarize_address_range("192.168.1.1", "192.168.1.254")
+    assert len(nets) >= 1
+    assert str(nets[0]).startswith("192.168.1")
+
+
+def test_compare_networks_contains():
+    relationship = compare_networks("192.168.1.0/24", "192.168.1.0/25")
+    assert "contains" in relationship
+
+
+def test_expand_ipv6():
+    assert (
+        expand_ipv6("2001:db8::1")
+        == "2001:0db8:0000:0000:0000:0000:0000:0001"
+    )
+
+
+def test_compress_ipv6():
+    assert compress_ipv6("2001:0db8:0000:0000:0000:0000:0000:0001") == "2001:db8::1"
 

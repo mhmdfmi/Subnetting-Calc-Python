@@ -37,7 +37,13 @@ subnet-calc count --network 192.168.1.0/24
 subnet-calc count --network 192.168.1.0/24 --count 4
 subnet-calc vlsm --network 10.0.0.0/16 --hosts "servers:500,clients:200"
 subnet-calc supernet --networks "192.168.1.0/24,192.168.2.0/24"
-subnet-calc reverse --hosts "100,50" --version v4
+subnet-calc summarize --networks "192.168.1.0/24,192.168.2.0/24"
+subnet-calc range --network 192.168.1.0/24
+subnet-calc range --start 192.168.1.1 --end 192.168.1.254
+subnet-calc compare --network1 192.168.1.0/24 --network2 192.168.1.0/25
+subnet-calc expand --address 2001:db8::1
+subnet-calc compress --address 2001:0db8:0000:0000:0000:0000:0000:0001
+subnet-calc reverse --hosts "100,50" --ip-version v4
 subnet-calc overlap --networks "192.168.1.0/24,192.168.2.0/24"
 subnet-calc eui64 --mac "00:11:22:33:44:55" --prefix "2001:db8::/64"
 ```

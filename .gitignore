@@ -25,6 +25,7 @@ TASK.md
 TODO.md
 *.log
 
-subnet_calc_copy.py
-subnet_utils_copy.py
+subnet_calc copy.py
+subnet_utils copy.py
+setup copy.py
 .coverage

@@ -4,7 +4,7 @@ Subnet Calculator CLI
 Usage examples:
   python3 subnet_calc.py count --network 192.168.1.0/24
   python3 subnet_calc.py count --network 192.168.1.0/24 --count 4
-  python3 subnet_calc.py count --network 2001:db8::/32 --version v6 --count 2
+  python3 subnet_calc.py count --network 2001:db8::/32 --ip-version v6 --count 2
 """
 
 __version__ = "0.1.2"
@@ -35,6 +35,11 @@ from subnet_utils import (
     output_json,
     output_csv,
     get_subnet_data,
+    compare_networks,
+    expand_ipv6,
+    compress_ipv6,
+    network_to_range,
+    summarize_address_range,
     SubnetCalculatorError,
     validate_cidr,
     validate_host_count,
@@ -134,18 +139,23 @@ def parse_arguments() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
   subnet-calc count --network 192.168.1.0/24 --hosts "100,50,20"
   subnet-calc vlsm --network 10.0.0.0/16 --hosts "500,200,100,50"
   subnet-calc supernet --networks "192.168.1.0/24,192.168.2.0/24"
-  subnet-calc reverse --hosts "100,50" --version v4
+  subnet-calc reverse --hosts "100,50" --ip-version v4
   subnet-calc overlap --networks "192.168.1.0/24,192.168.2.0/24"
   subnet-calc eui64 --mac "00:11:22:33:44:55" --prefix "2001:db8::/64"
   subnet-calc --config config.yaml --scenario home_vlsm
   subnet-calc --config config.yaml --scenario office_split
   subnet-calc --config config.yaml --scenario ipv6_deployment
-  subnet-calc --config config.yaml --scenario home_vlsm --version v4
+  subnet-calc --config config.yaml --scenario home_vlsm --ip-version v4
 
   IPv6 Examples:
-  subnet-calc count --network 2001:db8::/32 --version v6 --count 2
-  subnet-calc vlsm --network 2001:db8::/48 --hosts "1000,500" --version v6
+  subnet-calc count --network 2001:db8::/32 --ip-version v6 --count 2
+  subnet-calc vlsm --network 2001:db8::/48 --hosts "1000,500" --ip-version v6
   subnet-calc eui64 --mac "00:11:22:33:44:55" --prefix "2001:db8::/64"
+  subnet-calc summarize --networks "192.168.1.0/24,192.168.2.0/24"
+  subnet-calc range --network 192.168.1.0/24
+  subnet-calc compare --network1 192.168.1.0/24 --network2 192.168.1.0/25
+  subnet-calc expand --address 2001:db8::1
+  subnet-calc compress --address 2001:0db8:0000:0000:0000:0000:0000:0001
 
   Output Formats:
   subnet-calc --format table count --network 192.168.1.0/24
@@ -173,7 +183,7 @@ def parse_arguments() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
         "--hosts", help='VLSM hosts "subnet1:100,subnet2:50" or preset name'
     )
     count_parser.add_argument(
-        "--version", choices=["v4", "v6"], default="v4", help="IPv4 or IPv6"
+        "--ip-version", choices=["v4", "v6"], default="v4", help="IPv4 or IPv6"
     )
 
     vlsm_parser = subparsers.add_parser(
@@ -183,11 +193,58 @@ def parse_arguments() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
     vlsm_parser.add_argument(
         "--hosts", required=True, help='Hosts "subnet1:500,subnet2:200" or preset name'
     )
-    vlsm_parser.add_argument("--version", choices=["v4", "v6"], default="v4")
+    vlsm_parser.add_argument("--ip-version", choices=["v4", "v6"], default="v4")
 
     supernet_parser = subparsers.add_parser("supernet", help="Find supernet")
     supernet_parser.add_argument(
         "--networks", required=True, help='CIDRs "192.168.1.0/24,192.168.2.0/24"'
+    )
+
+    summarize_parser = subparsers.add_parser(
+        "summarize",
+        aliases=["aggregate"],
+        help="Find the minimal covering supernet for a list of CIDRs",
+    )
+    summarize_parser.add_argument(
+        "--networks", required=True, help='CIDRs "192.168.1.0/24,192.168.2.0/24"'
+    )
+
+    range_parser = subparsers.add_parser(
+        "range",
+        help="Convert between network/CIDR and IP host range",
+    )
+    range_parser.add_argument(
+        "--network",
+        help="CIDR to convert to host range (e.g. 192.168.1.0/24)",
+    )
+    range_parser.add_argument(
+        "--start",
+        help="Start IP for range-to-network conversion (e.g. 192.168.1.1)",
+    )
+    range_parser.add_argument(
+        "--end",
+        help="End IP for range-to-network conversion (e.g. 192.168.1.254)",
+    )
+
+    compare_parser = subparsers.add_parser(
+        "compare", help="Compare two CIDR networks")
+    compare_parser.add_argument(
+        "--network1", required=True, help="First network CIDR"
+    )
+    compare_parser.add_argument(
+        "--network2", required=True, help="Second network CIDR"
+    )
+
+    expand_parser = subparsers.add_parser(
+        "expand", help="Expand an IPv6 address to full notation")
+    expand_parser.add_argument(
+        "--address", required=True, help="IPv6 address to expand"
+    )
+
+    compress_parser = subparsers.add_parser(
+        "compress", help="Compress an IPv6 address to shortest notation")
+    compress_parser.add_argument(
+        "--address", required=True, help="IPv6 address to compress"
     )
 
     reverse_parser = subparsers.add_parser(
@@ -196,7 +253,7 @@ def parse_arguments() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
     reverse_parser.add_argument(
         "--hosts", required=True, help='Hosts "100,50,25" or preset name'
     )
-    reverse_parser.add_argument("--version", choices=["v4", "v6"], default="v4")
+    reverse_parser.add_argument("--ip-version", choices=["v4", "v6"], default="v4")
 
     overlap_parser = subparsers.add_parser("overlap", help="Check if subnets overlap")
     overlap_parser.add_argument(
@@ -211,6 +268,9 @@ def parse_arguments() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
     )
     eui64_parser.add_argument(
         "--prefix", required=True, help="IPv6 prefix (e.g. 2001:db8::/64)"
+    )
+    version_parser = subparsers.add_parser(
+        "version", help="Show package version and release metadata"
     )
 
     # Parse the remaining args
@@ -233,6 +293,8 @@ def apply_scenario(args: argparse.Namespace, config: Dict[str, Any]) -> None:
         for key, value in scenario.items():
             if getattr(args, key, None) is None:
                 setattr(args, key, value)
+        if getattr(args, "ip_version", None) is None and getattr(args, "version", None) is not None:
+            args.ip_version = args.version
         if args.command is None:
             if "command" in scenario:
                 args.command = scenario["command"]
@@ -268,6 +330,11 @@ def interactive_mode(config: Dict[str, Any]) -> argparse.Namespace:
         "4": "reverse",
         "5": "overlap",
         "6": "eui64",
+        "7": "summarize",
+        "8": "range",
+        "9": "compare",
+        "10": "expand",
+        "11": "compress",
     }
 
     try:
@@ -279,6 +346,11 @@ def interactive_mode(config: Dict[str, Any]) -> argparse.Namespace:
             print("4. Find smallest subnet for hosts")
             print("5. Check network overlap")
             print("6. Generate EUI-64 address")
+            print("7. Summarize networks into a minimal supernet")
+            print("8. Convert network to host range or host range to CIDR")
+            print("9. Compare two networks")
+            print("10. Expand IPv6 address")
+            print("11. Compress IPv6 address")
             choice = input("Enter choice (1-6): ").strip()
             if choice in commands:
                 command = commands[choice]
@@ -303,7 +375,7 @@ def interactive_mode(config: Dict[str, Any]) -> argparse.Namespace:
     try:
         if command == "count":
             args.network = input("Enter network (e.g. 192.168.1.0/24): ").strip()
-            args.version = input("Version (v4/v6) [v4]: ").strip() or "v4"
+            args.ip_version = input("IP version (v4/v6) [v4]: ").strip() or "v4"
 
             split_choice = (
                 input("Split network? (count/prefix/hosts/none) [none]: ")
@@ -320,7 +392,7 @@ def interactive_mode(config: Dict[str, Any]) -> argparse.Namespace:
         elif command == "vlsm":
             args.network = input("Enter network (e.g. 10.0.0.0/16): ").strip()
             args.hosts = input("Hosts (e.g. servers:500,clients:200): ").strip()
-            args.version = input("Version (v4/v6) [v4]: ").strip() or "v4"
+            args.ip_version = input("IP version (v4/v6) [v4]: ").strip() or "v4"
 
         elif command == "supernet":
             args.networks = input(
@@ -329,7 +401,7 @@ def interactive_mode(config: Dict[str, Any]) -> argparse.Namespace:
 
         elif command == "reverse":
             args.hosts = input("Hosts (comma-separated, e.g. 100,50,25): ").strip()
-            args.version = input("Version (v4/v6) [v4]: ").strip() or "v4"
+            args.ip_version = input("IP version (v4/v6) [v4]: ").strip() or "v4"
 
         elif command == "overlap":
             args.networks = input("Networks (comma-separated): ").strip()
@@ -337,6 +409,27 @@ def interactive_mode(config: Dict[str, Any]) -> argparse.Namespace:
         elif command == "eui64":
             args.mac = input("MAC address (e.g. 00:11:22:33:44:55): ").strip()
             args.prefix = input("IPv6 prefix (e.g. 2001:db8::/64): ").strip()
+
+        elif command == "summarize":
+            args.networks = input(
+                "Networks (comma-separated, e.g. 192.168.1.0/24,192.168.2.0/24): "
+            ).strip()
+
+        elif command == "range":
+            args.network = input("Enter CIDR network or leave blank to use range conversion: ").strip()
+            if not args.network:
+                args.start = input("Start IP: ").strip()
+                args.end = input("End IP: ").strip()
+
+        elif command == "compare":
+            args.network1 = input("First network CIDR: ").strip()
+            args.network2 = input("Second network CIDR: ").strip()
+
+        elif command == "expand":
+            args.address = input("IPv6 address to expand: ").strip()
+
+        elif command == "compress":
+            args.address = input("IPv6 address to compress: ").strip()
 
         # Output options
         format_choice = (
@@ -351,11 +444,11 @@ def interactive_mode(config: Dict[str, Any]) -> argparse.Namespace:
         # Use defaults for missing inputs
         if command == "count" and not hasattr(args, "network"):
             args.network = "192.168.1.0/24"
-            args.version = "v4"
+            args.ip_version = "v4"
         elif command == "vlsm" and not hasattr(args, "network"):
             args.network = "10.0.0.0/16"
             args.hosts = "500,200"
-            args.version = "v4"
+            args.ip_version = "v4"
         # Add similar defaults for other commands if needed
 
     return args
@@ -371,7 +464,7 @@ def handle_reverse(
     host_reqs = [int(h.strip()) for h in args.hosts.split(",") if h]
     for h in host_reqs:
         validate_host_count(h)
-    prefix = find_smallest_subnet(tuple(host_reqs), args.version)
+    prefix = find_smallest_subnet(tuple(host_reqs), args.ip_version)
     result = f"Smallest subnet for {host_reqs} hosts: /{prefix}"
     if format_type == "json":
         output_json([{"hosts": host_reqs, "prefix": prefix}], output_file)
@@ -454,6 +547,139 @@ def handle_supernet(
             supernet, format_type=format_type, output_file=output_file, verbose=verbose
         )
 
+def handle_version(
+    args: argparse.Namespace,
+    format_type: str = "text",
+    output_file: Optional[str] = None,
+    verbose: bool = True,
+) -> None:
+    """Handle the version command by printing release metadata."""
+    data = {
+        "package": "subnet-calculator",
+        "version": __version__,
+        "python": sys.version.split()[0],
+    }
+    if format_type == "json":
+        output_json([data], output_file)
+    elif format_type == "csv":
+        output_csv([data], output_file)
+    else:
+        print(f"subnet-calc version {__version__}")
+        print(f"Python: {data['python']}")
+
+def handle_summarize(
+    args: argparse.Namespace,
+    format_type: str = "text",
+    output_file: Optional[str] = None,
+    verbose: bool = True,
+) -> None:
+    """Handle the summarize command by finding the minimal covering supernet."""
+    nets = [validate_cidr(n.strip()) for n in args.networks.split(",")]
+    supernet = find_supernet(nets)
+    data = [{"networks": args.networks, "supernet": str(supernet)}]
+    if format_type == "json":
+        output_json(data, output_file)
+    elif format_type == "csv":
+        output_csv(data, output_file)
+    else:
+        print(f"Summarize supernet for {args.networks}: {supernet}")
+        print_subnet_details(
+            supernet, format_type=format_type, output_file=output_file, verbose=verbose
+        )
+
+def handle_range(
+    args: argparse.Namespace,
+    format_type: str = "text",
+    output_file: Optional[str] = None,
+    verbose: bool = True,
+) -> None:
+    """Handle the range command for CIDR/range conversion."""
+    if getattr(args, "network", None):
+        network = validate_cidr(args.network)
+        first_host, last_host, total = network_to_range(network)
+        data = [
+            {
+                "network": str(network),
+                "first_host": first_host,
+                "last_host": last_host,
+                "total_addresses": total,
+            }
+        ]
+    elif getattr(args, "start", None) and getattr(args, "end", None):
+        nets = summarize_address_range(args.start, args.end)
+        data = [
+            {"summary": ", ".join(str(net) for net in nets), "count": len(nets)}
+        ]
+    else:
+        raise ValueError("Provide either --network or both --start and --end")
+
+    if format_type == "json":
+        output_json(data, output_file)
+    elif format_type == "csv":
+        output_csv(data, output_file)
+    else:
+        if getattr(args, "network", None):
+            print(f"Network: {args.network}")
+            print(f"First host: {first_host}")
+            print(f"Last host: {last_host}")
+            print(f"Total addresses: {total}")
+        else:
+            print(f"Summarized networks: {data[0]['summary']}")
+            print(f"CIDR count: {data[0]['count']}")
+
+def handle_compare(
+    args: argparse.Namespace,
+    format_type: str = "text",
+    output_file: Optional[str] = None,
+    verbose: bool = True,
+) -> None:
+    """Handle the compare command by checking network relationship."""
+    message = compare_networks(args.network1, args.network2)
+    data = [
+        {
+            "network1": args.network1,
+            "network2": args.network2,
+            "relationship": message,
+        }
+    ]
+    if format_type == "json":
+        output_json(data, output_file)
+    elif format_type == "csv":
+        output_csv(data, output_file)
+    else:
+        print(message)
+
+def handle_expand(
+    args: argparse.Namespace,
+    format_type: str = "text",
+    output_file: Optional[str] = None,
+    verbose: bool = True,
+) -> None:
+    """Handle the expand command for IPv6 address formatting."""
+    expanded = expand_ipv6(args.address)
+    data = [{"address": args.address, "expanded": expanded}]
+    if format_type == "json":
+        output_json(data, output_file)
+    elif format_type == "csv":
+        output_csv(data, output_file)
+    else:
+        print(f"Expanded IPv6: {expanded}")
+
+def handle_compress(
+    args: argparse.Namespace,
+    format_type: str = "text",
+    output_file: Optional[str] = None,
+    verbose: bool = True,
+) -> None:
+    """Handle the compress command for IPv6 address formatting."""
+    compressed = compress_ipv6(args.address)
+    data = [{"address": args.address, "compressed": compressed}]
+    if format_type == "json":
+        output_json(data, output_file)
+    elif format_type == "csv":
+        output_csv(data, output_file)
+    else:
+        print(f"Compressed IPv6: {compressed}")
 
 def handle_count(
     args: argparse.Namespace,
@@ -535,6 +761,12 @@ def dispatch_command(
         "overlap": handle_overlap,
         "eui64": handle_eui64,
         "supernet": handle_supernet,
+        "summarize": handle_summarize,
+        "range": handle_range,
+        "compare": handle_compare,
+        "expand": handle_expand,
+        "compress": handle_compress,
+        "version": handle_version,
         "count": handle_count,
         "vlsm": handle_vlsm_command,
     }

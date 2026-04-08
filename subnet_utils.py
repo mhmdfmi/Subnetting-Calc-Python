@@ -364,19 +364,11 @@ def output_csv(
     if not data_list:
         return
 
-    fieldnames = [
-        "index",
-        "name",
-        "network",
-        "version",
-        "class",
-        "netmask",
-        "broadcast",
-        "total_addresses",
-        "usable_hosts",
-        "first_host",
-        "last_host",
-    ]
+    fieldnames = []
+    for row in data_list:
+        for key in row.keys():
+            if key not in fieldnames:
+                fieldnames.append(key)
 
     if output_file:
         with open(output_file, "w", newline="") as f:
@@ -512,6 +504,80 @@ def generate_eui64(mac: str, prefix: str) -> ipaddress.IPv6Address:
     prefix_int = (int(ipv6_net.network_address) >> 64) << 64  # Keep upper 64 bits
     full_int = prefix_int | eui64_int
     return ipaddress.IPv6Address(full_int)
+
+
+def validate_ip_address(address: str) -> Union[ipaddress.IPv4Address, ipaddress.IPv6Address]:
+    """Validate a single IP address string."""
+    try:
+        return ipaddress.ip_address(address)
+    except ValueError as e:
+        raise InvalidCIDRError(f"Invalid IP address '{address}': {e}")
+
+
+def network_to_range(
+    network: Union[ipaddress.IPv4Network, ipaddress.IPv6Network]
+) -> Tuple[str, str, int]:
+    """Return the first and last usable hosts for a network."""
+    total_hosts = network.num_addresses
+    if isinstance(network, ipaddress.IPv4Network):
+        if total_hosts > 2:
+            first_host = str(network.network_address + 1)
+            last_host = str(network.broadcast_address - 1)
+        else:
+            first_host = str(network.network_address)
+            last_host = str(network.broadcast_address)
+    else:
+        if total_hosts > 1:
+            first_host = str(network.network_address + 1)
+            last_host = str(network.broadcast_address)
+        else:
+            first_host = str(network.network_address)
+            last_host = str(network.network_address)
+    return first_host, last_host, total_hosts
+
+
+def summarize_address_range(
+    start: str, end: str
+) -> List[Union[ipaddress.IPv4Network, ipaddress.IPv6Network]]:
+    """Convert an IP address range into the smallest set of CIDR networks."""
+    start_ip = validate_ip_address(start)
+    end_ip = validate_ip_address(end)
+    if type(start_ip) is not type(end_ip):
+        raise MixedIPVersionError("Start and end addresses must be the same IP version")
+    if int(end_ip) < int(start_ip):
+        raise InvalidCIDRError("End address must be greater than or equal to start address")
+    return list(ipaddress.summarize_address_range(start_ip, end_ip))
+
+
+def compare_networks(net1: str, net2: str) -> str:
+    """Compare two CIDR networks and describe their relationship."""
+    network1 = validate_cidr(net1)
+    network2 = validate_cidr(net2)
+    if network1 == network2:
+        return f"Networks are identical: {network1}"
+    if network1.supernet_of(network2):
+        return f"{network1} contains {network2}"
+    if network2.supernet_of(network1):
+        return f"{network2} contains {network1}"
+    if network1.overlaps(network2):
+        return f"Networks overlap: {network1} and {network2}"
+    return f"Networks are distinct: {network1} and {network2}"
+
+
+def expand_ipv6(address: str) -> str:
+    """Expand an IPv6 address to full notation."""
+    ip = validate_ip_address(address)
+    if not isinstance(ip, ipaddress.IPv6Address):
+        raise InvalidCIDRError("Address must be IPv6")
+    return ip.exploded
+
+
+def compress_ipv6(address: str) -> str:
+    """Compress an IPv6 address to shortest notation."""
+    ip = validate_ip_address(address)
+    if not isinstance(ip, ipaddress.IPv6Address):
+        raise InvalidCIDRError("Address must be IPv6")
+    return ip.compressed
 
 
 def find_supernet(

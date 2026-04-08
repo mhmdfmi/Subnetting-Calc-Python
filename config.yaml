@@ -1,8 +1,8 @@
-# Enhanced config.yaml for subnet_calc.py v0.1.1
+# Enhanced config.yaml for subnet_calc.py v0.1.2
 # Supports presets for networks, hosts, and scenarios with improved error handling.
 # Use --config config.yaml to load this file.
 
-version: "0.1.1"
+version: "0.1.2"
 
 # Network presets: Short names for common CIDRs
 presets:
@@ -28,25 +28,25 @@ scenarios:
   home_vlsm:
     network: home # References preset
     hosts: small_office # References host_preset
-    version: v4
+    ip_version: v4
   office_split:
     network: office
     count: 4
-    version: v4
+    ip_version: v4
   ipv6_deployment:
     network: ipv6_home
     hosts: "site1:1000,site2:500"
-    version: v6
+    ip_version: v6
   point_to_point_setup:
     network: point_to_point
-    version: v4
+    ip_version: v4
   single_host_config:
     network: single_host
-    version: v4
+    ip_version: v4
 
 # Default settings
 defaults:
-  version: v4
+  ip_version: v4
   output_format: detailed # detailed or summary
   verbose: true
   format: text
