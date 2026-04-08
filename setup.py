@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="subnet-calculator",
-    version="0.1.2",
+version="0.1.3",
     description="CLI and library for IPv4/IPv6 subnet calculations, VLSM, supernet, overlap, and EUI-64 generation.",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",

@@ -7,7 +7,7 @@ Usage examples:
   python3 subnet_calc.py count --network 2001:db8::/32 --ip-version v6 --count 2
 """
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 import argparse
 import ipaddress
@@ -15,7 +15,7 @@ import math
 import sys
 import json
 import os
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 
 try:
     import yaml  # type: ignore[import]
@@ -34,6 +34,8 @@ from subnet_utils import (
     handle_vlsm,
     output_json,
     output_csv,
+    output_markdown,
+    output_pretty,
     get_subnet_data,
     compare_networks,
     expand_ipv6,
@@ -114,11 +116,16 @@ def parse_arguments() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
         "--quiet", action="store_true", help="Show minimal output"
     )
     global_parser.add_argument(
-        "--output", help="Output file for results (JSON/CSV formats)"
+        "--input",
+        help="Path to input file containing networks, host lists, or export data",
+    )
+    global_parser.add_argument(
+        "--output",
+        help="Output file for results (JSON/CSV/Markdown export formats)",
     )
     global_parser.add_argument(
         "--format",
-        choices=["text", "table", "json", "csv"],
+        choices=["text", "table", "json", "csv", "markdown", "pretty"],
         default="text",
         help="Output format",
     )
@@ -174,7 +181,7 @@ def parse_arguments() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
     )
     count_parser.add_argument(
         "--network",
-        required=True,
+        required=False,
         help="CIDR or preset name (e.g. 192.168.1.0/24 or home)",
     )
     count_parser.add_argument("--count", type=int, help="Split to N equal subnets")
@@ -189,15 +196,15 @@ def parse_arguments() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
     vlsm_parser = subparsers.add_parser(
         "vlsm", help="VLSM subnet allocation (supports named hosts and presets)"
     )
-    vlsm_parser.add_argument("--network", required=True, help="CIDR or preset name")
+    vlsm_parser.add_argument("--network", required=False, help="CIDR or preset name")
     vlsm_parser.add_argument(
-        "--hosts", required=True, help='Hosts "subnet1:500,subnet2:200" or preset name'
+        "--hosts", required=False, help='Hosts "subnet1:500,subnet2:200" or preset name'
     )
     vlsm_parser.add_argument("--ip-version", choices=["v4", "v6"], default="v4")
 
     supernet_parser = subparsers.add_parser("supernet", help="Find supernet")
     supernet_parser.add_argument(
-        "--networks", required=True, help='CIDRs "192.168.1.0/24,192.168.2.0/24"'
+        "--networks", required=False, help='CIDRs "192.168.1.0/24,192.168.2.0/24"'
     )
 
     summarize_parser = subparsers.add_parser(
@@ -206,7 +213,7 @@ def parse_arguments() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
         help="Find the minimal covering supernet for a list of CIDRs",
     )
     summarize_parser.add_argument(
-        "--networks", required=True, help='CIDRs "192.168.1.0/24,192.168.2.0/24"'
+        "--networks", required=False, help='CIDRs "192.168.1.0/24,192.168.2.0/24"'
     )
 
     range_parser = subparsers.add_parser(
@@ -229,10 +236,10 @@ def parse_arguments() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
     compare_parser = subparsers.add_parser(
         "compare", help="Compare two CIDR networks")
     compare_parser.add_argument(
-        "--network1", required=True, help="First network CIDR"
+        "--network1", required=False, help="First network CIDR"
     )
     compare_parser.add_argument(
-        "--network2", required=True, help="Second network CIDR"
+        "--network2", required=False, help="Second network CIDR"
     )
 
     expand_parser = subparsers.add_parser(
@@ -251,13 +258,13 @@ def parse_arguments() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
         "reverse", help="Find smallest subnet for given hosts or host preset"
     )
     reverse_parser.add_argument(
-        "--hosts", required=True, help='Hosts "100,50,25" or preset name'
+        "--hosts", required=False, help='Hosts "100,50,25" or preset name'
     )
     reverse_parser.add_argument("--ip-version", choices=["v4", "v6"], default="v4")
 
     overlap_parser = subparsers.add_parser("overlap", help="Check if subnets overlap")
     overlap_parser.add_argument(
-        "--networks", required=True, help='CIDRs "192.168.1.0/24,192.168.2.0/24"'
+        "--networks", required=False, help='CIDRs "192.168.1.0/24,192.168.2.0/24"'
     )
 
     eui64_parser = subparsers.add_parser(
@@ -312,6 +319,120 @@ def resolve_presets(args: argparse.Namespace, config: Dict[str, Any]) -> None:
         args.network = resolve_preset(args.network, config, "presets")
     if hasattr(args, "hosts") and args.hosts:
         args.hosts = resolve_preset(args.hosts, config, "host_presets")
+
+
+def load_input_file(path: str) -> List[str]:
+    """Load a list of items from a text, CSV, JSON, or YAML input file."""
+    if not os.path.exists(path):
+        raise ValueError(f"Input file not found: {path}")
+
+    extension = os.path.splitext(path)[1].lower()
+    with open(path, "r", encoding="utf-8") as f:
+        if extension in [".yaml", ".yml"]:
+            if not HAS_YAML:
+                raise ImportError(
+                    "YAML input support requires 'pyyaml'. Install with: pip install pyyaml"
+                )
+            content = yaml.safe_load(f)
+        elif extension == ".json":
+            content = json.load(f)
+        else:
+            raw_lines = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+            if extension == ".csv":
+                items: List[str] = []
+                for line in raw_lines:
+                    items.extend([item.strip() for item in line.split(",") if item.strip()])
+                return items
+            return raw_lines
+
+    if content is None:
+        return []
+    if isinstance(content, dict):
+        if "networks" in content:
+            return [str(item).strip() for item in content["networks"]]
+        if "hosts" in content:
+            return [str(item).strip() for item in content["hosts"]]
+        items: List[str] = []
+        for value in content.values():
+            if isinstance(value, (list, tuple)):
+                items.extend([str(item).strip() for item in value])
+            else:
+                items.append(str(value).strip())
+        return [item for item in items if item]
+    if isinstance(content, (list, tuple)):
+        return [str(item).strip() for item in content if item]
+    raise ValueError("Input file must contain a list, mapping, or line-delimited values")
+
+
+def resolve_input_args(args: argparse.Namespace) -> None:
+    """Resolve missing operation inputs from a provided file."""
+    if not getattr(args, "input", None):
+        return
+
+    items = load_input_file(args.input)
+    command = getattr(args, "command", None)
+
+    if command in ["supernet", "summarize", "overlap"]:
+        if not getattr(args, "networks", None):
+            args.networks = ",".join(items)
+
+    if command == "compare":
+        if not getattr(args, "network1", None) and not getattr(args, "network2", None):
+            if len(items) >= 2:
+                args.network1 = items[0]
+                args.network2 = items[1]
+            else:
+                raise ValueError(
+                    "Compare input file must contain at least two network entries"
+                )
+
+    if command == "range":
+        if not getattr(args, "network", None):
+            if len(items) == 1 and "/" in items[0]:
+                args.network = items[0]
+            elif len(items) >= 2:
+                args.start = items[0]
+                args.end = items[1]
+
+    if command == "count":
+        if not getattr(args, "network", None):
+            if len(items) == 1:
+                args.network = items[0]
+            elif len(items) > 1:
+                raise ValueError(
+                    "Count input file must contain exactly one network entry"
+                )
+        if not getattr(args, "hosts", None) and len(items) > 1:
+            args.hosts = ",".join(items)
+
+    if command == "vlsm":
+        if not getattr(args, "network", None) and items:
+            args.network = items[0]
+        if not getattr(args, "hosts", None) and len(items) > 1:
+            args.hosts = ",".join(items[1:])
+
+    if command == "reverse" and not getattr(args, "hosts", None):
+        args.hosts = ",".join(items)
+
+
+def validate_required_args(args: argparse.Namespace) -> None:
+    """Validate that required command inputs are supplied after input file resolution."""
+    if args.command == "count" and not getattr(args, "network", None):
+        raise ValueError("count command requires --network or --input file")
+    if args.command == "vlsm":
+        if not getattr(args, "network", None):
+            raise ValueError("vlsm command requires --network or --input file")
+        if not getattr(args, "hosts", None):
+            raise ValueError("vlsm command requires --hosts or --input file")
+    if args.command in ["supernet", "summarize", "overlap"] and not getattr(
+        args, "networks", None
+    ):
+        raise ValueError(f"{args.command} command requires --networks or --input file")
+    if args.command == "compare":
+        if not getattr(args, "network1", None) or not getattr(args, "network2", None):
+            raise ValueError("compare command requires --network1 and --network2 or --input file")
+    if args.command == "reverse" and not getattr(args, "hosts", None):
+        raise ValueError("reverse command requires --hosts or --input file")
 
 
 def interactive_mode(config: Dict[str, Any]) -> argparse.Namespace:
@@ -433,11 +554,11 @@ def interactive_mode(config: Dict[str, Any]) -> argparse.Namespace:
 
         # Output options
         format_choice = (
-            input("Output format (text/table/json/csv) [text]: ").strip().lower()
+            input("Output format (text/table/json/csv/markdown/pretty) [text]: ").strip().lower()
         )
-        if format_choice in ["table", "json", "csv"]:
+        if format_choice in ["table", "json", "csv", "markdown", "pretty"]:
             args.format = format_choice
-            if format_choice in ["json", "csv"]:
+            if format_choice in ["json", "csv", "markdown"]:
                 args.output = input("Output file path: ").strip() or None
     except EOFError:
         print("\nInput ended early. Using defaults for remaining options.")
@@ -466,12 +587,15 @@ def handle_reverse(
         validate_host_count(h)
     prefix = find_smallest_subnet(tuple(host_reqs), args.ip_version)
     result = f"Smallest subnet for {host_reqs} hosts: /{prefix}"
+    data = [{"hosts": ",".join(map(str, host_reqs)), "prefix": prefix}]
     if format_type == "json":
         output_json([{"hosts": host_reqs, "prefix": prefix}], output_file)
     elif format_type == "csv":
-        output_csv(
-            [{"hosts": ",".join(map(str, host_reqs)), "prefix": prefix}], output_file
-        )
+        output_csv(data, output_file)
+    elif format_type == "markdown":
+        output_markdown(data, output_file)
+    elif format_type == "pretty":
+        output_pretty(data, output_file)
     else:
         print(result)
 
@@ -487,15 +611,15 @@ def handle_overlap(
     for net in networks:
         validate_cidr(net)
     overlaps, msg = check_overlap(networks)
+    data = [{"networks": ",".join(networks), "overlaps": overlaps, "message": msg}]
     if format_type == "json":
-        output_json(
-            [{"networks": networks, "overlaps": overlaps, "message": msg}], output_file
-        )
+        output_json(data, output_file)
     elif format_type == "csv":
-        output_csv(
-            [{"networks": ",".join(networks), "overlaps": overlaps, "message": msg}],
-            output_file,
-        )
+        output_csv(data, output_file)
+    elif format_type == "markdown":
+        output_markdown(data, output_file)
+    elif format_type == "pretty":
+        output_pretty(data, output_file)
     else:
         print(msg)
 
@@ -510,16 +634,17 @@ def handle_eui64(
     validate_cidr(args.prefix)
     ipv6_addr = generate_eui64(args.mac, args.prefix)
     result = f"EUI-64 IPv6 address: {ipv6_addr}"
+    data = [
+        {"mac": args.mac, "prefix": args.prefix, "eui64_address": str(ipv6_addr)}
+    ]
     if format_type == "json":
-        output_json(
-            [{"mac": args.mac, "prefix": args.prefix, "eui64_address": str(ipv6_addr)}],
-            output_file,
-        )
+        output_json(data, output_file)
     elif format_type == "csv":
-        output_csv(
-            [{"mac": args.mac, "prefix": args.prefix, "eui64_address": str(ipv6_addr)}],
-            output_file,
-        )
+        output_csv(data, output_file)
+    elif format_type == "markdown":
+        output_markdown(data, output_file)
+    elif format_type == "pretty":
+        output_pretty(data, output_file)
     else:
         print(result)
 
@@ -535,12 +660,15 @@ def handle_supernet(
     for n in args.networks.split(","):
         nets.append(validate_cidr(n.strip()))
     supernet = find_supernet(nets)
-    if format_type in ["json", "csv"]:
-        data = [{"networks": args.networks, "supernet": str(supernet)}]
-        if format_type == "json":
-            output_json(data, output_file)
-        else:
-            output_csv(data, output_file)
+    data = [{"networks": args.networks, "supernet": str(supernet)}]
+    if format_type == "json":
+        output_json(data, output_file)
+    elif format_type == "csv":
+        output_csv(data, output_file)
+    elif format_type == "markdown":
+        output_markdown(data, output_file)
+    elif format_type == "pretty":
+        output_pretty(data, output_file)
     else:
         print(f"Supernet for {args.networks}: {supernet}")
         print_subnet_details(
@@ -563,6 +691,10 @@ def handle_version(
         output_json([data], output_file)
     elif format_type == "csv":
         output_csv([data], output_file)
+    elif format_type == "markdown":
+        output_markdown([data], output_file)
+    elif format_type == "pretty":
+        output_pretty([data], output_file)
     else:
         print(f"subnet-calc version {__version__}")
         print(f"Python: {data['python']}")
@@ -581,6 +713,10 @@ def handle_summarize(
         output_json(data, output_file)
     elif format_type == "csv":
         output_csv(data, output_file)
+    elif format_type == "markdown":
+        output_markdown(data, output_file)
+    elif format_type == "pretty":
+        output_pretty(data, output_file)
     else:
         print(f"Summarize supernet for {args.networks}: {supernet}")
         print_subnet_details(
@@ -617,6 +753,10 @@ def handle_range(
         output_json(data, output_file)
     elif format_type == "csv":
         output_csv(data, output_file)
+    elif format_type == "markdown":
+        output_markdown(data, output_file)
+    elif format_type == "pretty":
+        output_pretty(data, output_file)
     else:
         if getattr(args, "network", None):
             print(f"Network: {args.network}")
@@ -646,6 +786,10 @@ def handle_compare(
         output_json(data, output_file)
     elif format_type == "csv":
         output_csv(data, output_file)
+    elif format_type == "markdown":
+        output_markdown(data, output_file)
+    elif format_type == "pretty":
+        output_pretty(data, output_file)
     else:
         print(message)
 
@@ -662,6 +806,10 @@ def handle_expand(
         output_json(data, output_file)
     elif format_type == "csv":
         output_csv(data, output_file)
+    elif format_type == "markdown":
+        output_markdown(data, output_file)
+    elif format_type == "pretty":
+        output_pretty(data, output_file)
     else:
         print(f"Expanded IPv6: {expanded}")
 
@@ -678,6 +826,10 @@ def handle_compress(
         output_json(data, output_file)
     elif format_type == "csv":
         output_csv(data, output_file)
+    elif format_type == "markdown":
+        output_markdown(data, output_file)
+    elif format_type == "pretty":
+        output_pretty(data, output_file)
     else:
         print(f"Compressed IPv6: {compressed}")
 
@@ -712,7 +864,7 @@ def handle_count(
         else:
             new_pl = args.prefix
             num = 2 ** (new_pl - ip_net.prefixlen)
-        if format_type in ["json", "csv"]:
+        if format_type in ["json", "csv", "table", "markdown", "pretty"]:
             subnet_data = []
             for i, subnet in enumerate(subnets):
                 data = get_subnet_data(subnet, i)
@@ -720,8 +872,14 @@ def handle_count(
                 subnet_data.append(data)
             if format_type == "json":
                 output_json(subnet_data, output_file)
-            else:
+            elif format_type == "csv":
                 output_csv(subnet_data, output_file)
+            elif format_type == "table":
+                output_table(subnet_data, output_file)
+            elif format_type == "markdown":
+                output_markdown(subnet_data, output_file)
+            elif format_type == "pretty":
+                output_pretty(subnet_data, output_file)
         else:
             print(f"Split {ip_net} into {num} /{new_pl} subnets:")
             for i, subnet in enumerate(subnets):
@@ -800,6 +958,10 @@ def main() -> int:
     # Resolve presets
     resolve_presets(args, config)
 
+    # Resolve input file values if provided
+    resolve_input_args(args)
+    validate_required_args(args)
+
     # Determine output options
     verbose = args.verbose and not args.quiet
     format_type = args.format
@@ -812,6 +974,11 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+
+    if output_file is None and format_type in ["json", "csv", "markdown"]:
+        output_file = f"subnet-calc-{args.command}.{ 'md' if format_type == 'markdown' else format_type }"
+        if not args.quiet:
+            print(f"Writing output to {output_file}")
 
     try:
         dispatch_command(args, format_type, output_file, verbose)

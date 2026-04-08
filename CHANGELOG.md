@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.1.3] - 2026-04-09
+
+- Updated version to 0.1.3 (metadata release)
+
 ## [0.1.2] - 2026-04-08
 
 - Added global build/install helper scripts: `build_global.ps1` and `build_global.sh`.

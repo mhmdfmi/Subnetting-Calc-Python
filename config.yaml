@@ -2,7 +2,7 @@
 # Supports presets for networks, hosts, and scenarios with improved error handling.
 # Use --config config.yaml to load this file.
 
-version: "0.1.2"
+version: "0.1.3"
 
 # Network presets: Short names for common CIDRs
 presets:

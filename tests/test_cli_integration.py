@@ -133,3 +133,54 @@ def test_cli_compare_command(monkeypatch, capsys):
     assert exit_code == 0
     assert "contains" in captured.out
 
+
+def test_cli_input_file_networks(tmp_path, monkeypatch, capsys):
+    input_file = tmp_path / "networks.txt"
+    input_file.write_text("192.168.1.0/24\n192.168.2.0/24\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["subnet_calc.py", "summarize", "--input", str(input_file)],
+    )
+    exit_code = main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Summarize supernet" in captured.out
+
+
+def test_cli_default_json_export(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["subnet_calc.py", "version", "--format", "json"])
+    exit_code = main()
+
+    assert exit_code == 0
+    assert (tmp_path / "subnet-calc-version.json").exists()
+
+
+def test_cli_summarize_markdown_output(tmp_path, monkeypatch):
+    output_file = tmp_path / "summary.md"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "subnet_calc.py",
+            "summarize",
+            "--networks",
+            "192.168.1.0/24,192.168.2.0/24",
+            "--format",
+            "markdown",
+            "--output",
+            str(output_file),
+        ],
+    )
+    exit_code = main()
+
+    assert exit_code == 0
+    assert output_file.exists()
+    content = output_file.read_text(encoding="utf-8")
+    assert "| networks |" in content
+    assert "| supernet |" in content
+

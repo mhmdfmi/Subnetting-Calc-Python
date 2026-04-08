@@ -26,6 +26,13 @@ try:
 except ImportError:
     HAS_RICH = False
 
+try:
+    import openpyxl  # type: ignore[import]
+
+    HAS_OPENPYXL = True
+except ImportError:
+    HAS_OPENPYXL = False
+
 
 # Custom Exceptions
 class SubnetCalculatorError(Exception):
@@ -239,6 +246,10 @@ def print_subnet_details(
         output_csv([data], output_file)
     elif format_type == "table":
         output_table([data], output_file)
+    elif format_type == "markdown":
+        output_markdown([data], output_file)
+    elif format_type == "pretty":
+        output_pretty([data], output_file)
     else:  # text
         output_text(data, verbose)
 
@@ -370,8 +381,11 @@ def output_csv(
             if key not in fieldnames:
                 fieldnames.append(key)
 
+    if output_file and output_file.lower().endswith(".xlsx"):
+        output_excel(data_list, output_file)
+        return
     if output_file:
-        with open(output_file, "w", newline="") as f:
+        with open(output_file, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(data_list)
@@ -379,6 +393,92 @@ def output_csv(
         writer = csv.DictWriter(sys.stdout, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(data_list)
+
+
+def output_markdown(
+    data_list: List[Dict[str, Any]], output_file: Optional[str] = None
+) -> None:
+    """Output subnet data as Markdown."""
+    if not data_list:
+        return
+
+    fieldnames: List[str] = []
+    for row in data_list:
+        for key in row.keys():
+            if key not in fieldnames:
+                fieldnames.append(key)
+
+    lines: List[str] = []
+    lines.append("| " + " | ".join(fieldnames) + " |")
+    lines.append("| " + " | ".join(["---"] * len(fieldnames)) + " |")
+    for row in data_list:
+        lines.append(
+            "| " + " | ".join(str(row.get(key, "")) for key in fieldnames) + " |"
+        )
+
+    content = "\n".join(lines)
+    if output_file:
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write(content + "\n")
+    else:
+        print(content)
+
+
+def output_pretty(
+    data_list: List[Dict[str, Any]], output_file: Optional[str] = None
+) -> None:
+    """Output subnet data in a rich pretty/table format."""
+    if not data_list:
+        return
+
+    if not HAS_RICH:
+        print("Rich library not available. Install with: pip install rich")
+        output_json(data_list, output_file)
+        return
+
+    fieldnames: List[str] = []
+    for row in data_list:
+        for key in row.keys():
+            if key not in fieldnames:
+                fieldnames.append(key)
+
+    table = Table(show_header=True, header_style="bold magenta")
+    for header in fieldnames:
+        table.add_column(header)
+
+    for row in data_list:
+        table.add_row(*[str(row.get(key, "")) for key in fieldnames])
+
+    if output_file:
+        with open(output_file, "w", encoding="utf-8") as f:
+            Console(file=f, force_terminal=False).print(table)
+    else:
+        Console().print(table)
+
+
+def output_excel(
+    data_list: List[Dict[str, Any]], output_file: str
+) -> None:
+    """Output subnet data as an Excel workbook."""
+    if not HAS_OPENPYXL:
+        raise ImportError(
+            "Excel export requires openpyxl. Install with: pip install openpyxl"
+        )
+
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+
+    fieldnames: List[str] = []
+    for row in data_list:
+        for key in row.keys():
+            if key not in fieldnames:
+                fieldnames.append(key)
+
+    sheet.append(fieldnames)
+    for row in data_list:
+        sheet.append([row.get(key, "") for key in fieldnames])
+
+    workbook.save(output_file)
 
 
 def calculate_subnets(
@@ -689,6 +789,10 @@ def handle_vlsm(
         output_csv(subnet_data, output_file)
     elif format_type == "table":
         output_table(subnet_data, output_file)
+    elif format_type == "markdown":
+        output_markdown(subnet_data, output_file)
+    elif format_type == "pretty":
+        output_pretty(subnet_data, output_file)
     else:  # text
         for data in subnet_data:
             output_text(data, verbose)
