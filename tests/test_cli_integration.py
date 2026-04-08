@@ -1,0 +1,90 @@
+import sys
+
+from subnet_calc import main
+
+
+def test_cli_count_split(monkeypatch, capsys):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["subnet_calc.py", "count", "--network", "192.168.1.0/24", "--count", "2"],
+    )
+    exit_code = main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Split 192.168.1.0/24 into 2 /25 subnets" in captured.out
+
+
+def test_cli_reverse_command(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["subnet_calc.py", "reverse", "--hosts", "100,50"])
+    exit_code = main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Smallest subnet for [100, 50] hosts: /" in captured.out
+
+
+def test_cli_vlsm_command(monkeypatch, capsys):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["subnet_calc.py", "vlsm", "--network", "10.0.0.0/16", "--hosts", "500,200"],
+    )
+    exit_code = main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "VLSM for 500,200 in 10.0.0.0/16:" in captured.out
+
+
+def test_cli_supernet_command(monkeypatch, capsys):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "subnet_calc.py",
+            "supernet",
+            "--networks",
+            "192.168.1.0/24,192.168.2.0/24",
+        ],
+    )
+    exit_code = main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Supernet for 192.168.1.0/24,192.168.2.0/24:" in captured.out
+
+
+def test_cli_overlap_command(monkeypatch, capsys):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["subnet_calc.py", "overlap", "--networks", "192.168.1.0/24,192.168.2.0/24"],
+    )
+    exit_code = main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "No overlaps found" in captured.out
+
+
+def test_cli_eui64_command(monkeypatch, capsys):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "subnet_calc.py",
+            "eui64",
+            "--mac",
+            "00:11:22:33:44:55",
+            "--prefix",
+            "2001:db8::/64",
+        ],
+    )
+    exit_code = main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "EUI-64 IPv6 address:" in captured.out
+

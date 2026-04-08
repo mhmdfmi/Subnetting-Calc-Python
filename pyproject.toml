@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "subnet-calculator"
+version = "0.1.1"
+description = "CLI and library for IPv4/IPv6 subnet calculations, VLSM, supernet, overlap, and EUI-64 generation."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+  { name = "Your Name", email = "you@example.com" }
+]
+keywords = ["subnet", "network", "ipv4", "ipv6", "vlsm", "networking"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent"
+]
+[tool.setuptools]
+py-modules = ["subnet_calc", "subnet_utils"]
+
+[project.optional-dependencies]
+dev = ["tabulate", "rich", "pyyaml", "pytest>=7.0", "pytest-cov", "black", "flake8", "mypy"]
+
+[project.urls]
+Homepage = "https://example.com/subnet-calculator"
+"Bug Tracker" = "https://example.com/subnet-calculator/issues"
+
+[project.scripts]
+subnet-calc = "subnet_calc:main"
+
+[tool.black]
+line-length = 88
+target-version = ["py38"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = ["E203", "W503"]
+exclude = [".git", "__pycache__", "build", "dist", ".venv"]
+
+[tool.mypy]
+python_version = "3.9"
+ignore_missing_imports = true
+strict_optional = true

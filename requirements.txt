@@ -1,0 +1,7 @@
+# Core runtime dependencies
+# None required for the base package; it uses the Python standard library.
+
+# Optional dependencies for enhanced output and configuration
+rich
+tabulate
+pyyaml

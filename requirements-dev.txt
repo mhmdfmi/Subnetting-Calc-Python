@@ -1,0 +1,8 @@
+pytest>=7.0
+pytest-cov
+rich
+tabulate
+pyyaml
+black
+flake8
+mypy

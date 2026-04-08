@@ -1,0 +1,605 @@
+#!/usr/bin/env python3
+"""
+Subnet Calculator CLI
+Usage examples:
+  python3 subnet_calc.py count --network 192.168.1.0/24
+  python3 subnet_calc.py count --network 192.168.1.0/24 --count 4
+  python3 subnet_calc.py count --network 2001:db8::/32 --version v6 --count 2
+"""
+
+__version__ = "0.1.0"
+
+import argparse
+import ipaddress
+import math
+import sys
+import json
+import os
+from typing import Dict, Any, Optional, Tuple
+
+try:
+    import yaml  # type: ignore[import]
+
+    HAS_YAML = True
+except ImportError:
+    HAS_YAML = False
+
+from subnet_utils import (
+    print_subnet_details,
+    calculate_subnets,
+    find_smallest_subnet,
+    check_overlap,
+    generate_eui64,
+    find_supernet,
+    handle_vlsm,
+    output_json,
+    output_csv,
+    get_subnet_data,
+    SubnetCalculatorError,
+    validate_cidr,
+    validate_host_count,
+)
+
+
+def load_config(config_file: Optional[str]) -> Dict[str, Any]:
+    """Load config from a YAML or JSON file.
+
+    Parameters:
+        config_file: Optional path to a YAML or JSON configuration file.
+
+    Returns:
+        A dictionary with configuration values, or an empty dict if no file is provided.
+    """
+    if not config_file or not os.path.exists(config_file):
+        return {}
+    with open(config_file, "r") as f:
+        if (config_file.endswith(".yaml") or config_file.endswith(".yml")) and HAS_YAML:
+            return yaml.safe_load(f) or {}
+        elif config_file.endswith(".json"):
+            return json.load(f) or {}
+        elif (
+            config_file.endswith(".yaml") or config_file.endswith(".yml")
+        ) and not HAS_YAML:
+            raise ImportError(
+                "YAML support requires 'pyyaml' package. Install with: pip install pyyaml"
+            )
+    return {}
+
+
+def resolve_preset(value: str, config: Dict[str, Any], key: str) -> str:
+    """Resolve a preset name to its value from config.
+
+    Parameters:
+        value: Preset name or raw value.
+        config: Config dictionary loaded from YAML/JSON.
+        key: Config section to look up (for example, 'presets').
+
+    Returns:
+        Resolved value from config or the original value if not found.
+    """
+    if config and key in config and value in config[key]:
+        return config[key][value]
+    return value
+
+
+def parse_arguments() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
+    """Parse command line arguments and return the populated parser and namespace.
+
+    Returns:
+        A tuple containing the configured argparse parser and parsed arguments.
+    """
+    # First, parse global arguments
+    global_parser = argparse.ArgumentParser(add_help=False)
+    global_parser.add_argument(
+        "--config", help="Path to YAML/JSON config file for presets and scenarios"
+    )
+    global_parser.add_argument(
+        "--scenario",
+        help="Load a scenario from the config and auto-fill command and args",
+    )
+    global_parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Run in interactive mode for guided input",
+    )
+    global_parser.add_argument(
+        "--verbose", action="store_true", help="Show detailed output"
+    )
+    global_parser.add_argument(
+        "--quiet", action="store_true", help="Show minimal output"
+    )
+    global_parser.add_argument(
+        "--output", help="Output file for results (JSON/CSV formats)"
+    )
+    global_parser.add_argument(
+        "--format",
+        choices=["text", "table", "json", "csv"],
+        default="text",
+        help="Output format",
+    )
+
+    # Parse known args to get global options
+    args, remaining = global_parser.parse_known_args()
+
+    # Now create the full parser
+    parser = argparse.ArgumentParser(
+        description="Subnet Calculator CLI for IPv4/IPv6 subnetting, VLSM, supernet",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[global_parser],
+        epilog="""Examples:
+  python subnet_calc.py --help (show this help)
+  python subnet_calc.py count --network 192.168.1.0/24
+  python subnet_calc.py count --network 192.168.1.0/24 --count 4
+  python subnet_calc.py count --network 192.168.1.0/24 --prefix 26
+  python subnet_calc.py count --network 192.168.1.0/24 --hosts "100,50,20"
+  python subnet_calc.py vlsm --network 10.0.0.0/16 --hosts "500,200,100,50"
+  python subnet_calc.py supernet --networks "192.168.1.0/24,192.168.2.0/24"
+  python subnet_calc.py reverse --hosts "100,50" --version v4
+  python subnet_calc.py overlap --networks "192.168.1.0/24,192.168.2.0/24"
+  python subnet_calc.py eui64 --mac "00:11:22:33:44:55" --prefix "2001:db8::/64"
+  python subnet_calc.py --config config.yaml --scenario home_vlsm
+  python subnet_calc.py --config config.yaml --scenario office_split
+  python subnet_calc.py --config config.yaml --scenario ipv6_deployment
+  python subnet_calc.py --config config.yaml --scenario home_vlsm --version v4
+
+  IPv6 Examples:
+  python subnet_calc.py count --network 2001:db8::/32 --version v6 --count 2
+  python subnet_calc.py vlsm --network 2001:db8::/48 --hosts "1000,500" --version v6
+  python subnet_calc.py eui64 --mac "00:11:22:33:44:55" --prefix "2001:db8::/64"
+
+  Output Formats:
+  python subnet_calc.py --format table count --network 192.168.1.0/24
+  python subnet_calc.py --format json --output results.json vlsm --network 10.0.0.0/16 --hosts "500,200"
+  python subnet_calc.py --format csv --output subnets.csv count --network 192.168.1.0/24
+
+  Interactive Mode:
+  python subnet_calc.py --interactive
+        """,
+    )
+
+    subparsers = parser.add_subparsers(dest="command", required=False, help="Commands")
+
+    count_parser = subparsers.add_parser(
+        "count", help="Show subnet details or split (use --count, --prefix, or --hosts)"
+    )
+    count_parser.add_argument(
+        "--network",
+        required=True,
+        help="CIDR or preset name (e.g. 192.168.1.0/24 or home)",
+    )
+    count_parser.add_argument("--count", type=int, help="Split to N equal subnets")
+    count_parser.add_argument("--prefix", type=int, help="Split to /PREFIX subnets")
+    count_parser.add_argument(
+        "--hosts", help='VLSM hosts "subnet1:100,subnet2:50" or preset name'
+    )
+    count_parser.add_argument(
+        "--version", choices=["v4", "v6"], default="v4", help="IPv4 or IPv6"
+    )
+
+    vlsm_parser = subparsers.add_parser(
+        "vlsm", help="VLSM subnet allocation (supports named hosts and presets)"
+    )
+    vlsm_parser.add_argument("--network", required=True, help="CIDR or preset name")
+    vlsm_parser.add_argument(
+        "--hosts", required=True, help='Hosts "subnet1:500,subnet2:200" or preset name'
+    )
+    vlsm_parser.add_argument("--version", choices=["v4", "v6"], default="v4")
+
+    supernet_parser = subparsers.add_parser("supernet", help="Find supernet")
+    supernet_parser.add_argument(
+        "--networks", required=True, help='CIDRs "192.168.1.0/24,192.168.2.0/24"'
+    )
+
+    reverse_parser = subparsers.add_parser(
+        "reverse", help="Find smallest subnet for given hosts or host preset"
+    )
+    reverse_parser.add_argument(
+        "--hosts", required=True, help='Hosts "100,50,25" or preset name'
+    )
+    reverse_parser.add_argument("--version", choices=["v4", "v6"], default="v4")
+
+    overlap_parser = subparsers.add_parser("overlap", help="Check if subnets overlap")
+    overlap_parser.add_argument(
+        "--networks", required=True, help='CIDRs "192.168.1.0/24,192.168.2.0/24"'
+    )
+
+    eui64_parser = subparsers.add_parser(
+        "eui64", help="Generate IPv6 EUI-64 address from MAC and /64 prefix"
+    )
+    eui64_parser.add_argument(
+        "--mac", required=True, help="MAC address (e.g. 00:11:22:33:44:55)"
+    )
+    eui64_parser.add_argument(
+        "--prefix", required=True, help="IPv6 prefix (e.g. 2001:db8::/64)"
+    )
+
+    # Parse the remaining args
+    remaining_args = parser.parse_args(remaining, namespace=args)
+    return parser, remaining_args
+
+
+def apply_scenario(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    """Apply a scenario from config to the parsed arguments.
+
+    The scenario can specify a command, network, hosts, and other defaults.
+    Scenario values are only applied when the same argument was not provided
+    explicitly on the command line.
+    """
+    if args.scenario:
+        if "scenarios" not in config or args.scenario not in config["scenarios"]:
+            raise ValueError(f"Scenario '{args.scenario}' not found in config")
+        scenario = config["scenarios"][args.scenario]
+        # Merge scenario values into args when not explicitly provided
+        for key, value in scenario.items():
+            if getattr(args, key, None) is None:
+                setattr(args, key, value)
+        if args.command is None:
+            if "command" in scenario:
+                args.command = scenario["command"]
+            elif "hosts" in scenario:
+                args.command = "vlsm"
+            elif "networks" in scenario:
+                args.command = "supernet"
+            else:
+                args.command = "count"
+
+
+def resolve_presets(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    """Resolve preset names from config for network and hosts fields."""
+    if hasattr(args, "network") and args.network:
+        args.network = resolve_preset(args.network, config, "presets")
+    if hasattr(args, "hosts") and args.hosts:
+        args.hosts = resolve_preset(args.hosts, config, "host_presets")
+
+
+def interactive_mode(config: Dict[str, Any]) -> argparse.Namespace:
+    """Run interactive mode for guided input.
+
+    Returns:
+        Parsed arguments namespace built from interactive prompts.
+    """
+    print("=== Subnet Calculator - Interactive Mode ===")
+
+    # Choose command
+    commands = {
+        "1": "count",
+        "2": "vlsm",
+        "3": "supernet",
+        "4": "reverse",
+        "5": "overlap",
+        "6": "eui64",
+    }
+
+    try:
+        while True:
+            print("\nChoose operation:")
+            print("1. Show subnet details / split network")
+            print("2. VLSM subnet allocation")
+            print("3. Find supernet")
+            print("4. Find smallest subnet for hosts")
+            print("5. Check network overlap")
+            print("6. Generate EUI-64 address")
+            choice = input("Enter choice (1-6): ").strip()
+            if choice in commands:
+                command = commands[choice]
+                break
+            print("Invalid choice. Try again.")
+    except EOFError:
+        print("\nNo input provided. Using default operation: count")
+        command = "count"
+
+    # Create args namespace
+    args = argparse.Namespace()
+    args.command = command
+    args.config = None  # Will be set later if needed
+    args.scenario = None
+    args.interactive = True
+    args.verbose = True
+    args.quiet = False
+    args.output = None
+    args.format = "text"
+
+    # Gather inputs based on command
+    try:
+        if command == "count":
+            args.network = input("Enter network (e.g. 192.168.1.0/24): ").strip()
+            args.version = input("Version (v4/v6) [v4]: ").strip() or "v4"
+
+            split_choice = (
+                input("Split network? (count/prefix/hosts/none) [none]: ")
+                .strip()
+                .lower()
+            )
+            if split_choice == "count":
+                args.count = int(input("Number of subnets: ").strip())
+            elif split_choice == "prefix":
+                args.prefix = int(input("Target prefix length: ").strip())
+            elif split_choice == "hosts":
+                args.hosts = input("Hosts (e.g. 100,50,20): ").strip()
+
+        elif command == "vlsm":
+            args.network = input("Enter network (e.g. 10.0.0.0/16): ").strip()
+            args.hosts = input("Hosts (e.g. servers:500,clients:200): ").strip()
+            args.version = input("Version (v4/v6) [v4]: ").strip() or "v4"
+
+        elif command == "supernet":
+            args.networks = input(
+                "Networks (comma-separated, e.g. 192.168.1.0/24,192.168.2.0/24): "
+            ).strip()
+
+        elif command == "reverse":
+            args.hosts = input("Hosts (comma-separated, e.g. 100,50,25): ").strip()
+            args.version = input("Version (v4/v6) [v4]: ").strip() or "v4"
+
+        elif command == "overlap":
+            args.networks = input("Networks (comma-separated): ").strip()
+
+        elif command == "eui64":
+            args.mac = input("MAC address (e.g. 00:11:22:33:44:55): ").strip()
+            args.prefix = input("IPv6 prefix (e.g. 2001:db8::/64): ").strip()
+
+        # Output options
+        format_choice = (
+            input("Output format (text/table/json/csv) [text]: ").strip().lower()
+        )
+        if format_choice in ["table", "json", "csv"]:
+            args.format = format_choice
+            if format_choice in ["json", "csv"]:
+                args.output = input("Output file path: ").strip() or None
+    except EOFError:
+        print("\nInput ended early. Using defaults for remaining options.")
+        # Use defaults for missing inputs
+        if command == "count" and not hasattr(args, "network"):
+            args.network = "192.168.1.0/24"
+            args.version = "v4"
+        elif command == "vlsm" and not hasattr(args, "network"):
+            args.network = "10.0.0.0/16"
+            args.hosts = "500,200"
+            args.version = "v4"
+        # Add similar defaults for other commands if needed
+
+    return args
+
+
+def handle_reverse(
+    args: argparse.Namespace,
+    format_type: str = "text",
+    output_file: Optional[str] = None,
+    verbose: bool = True,
+) -> None:
+    """Handle the reverse command by finding the smallest subnet for hosts."""
+    host_reqs = [int(h.strip()) for h in args.hosts.split(",") if h]
+    for h in host_reqs:
+        validate_host_count(h)
+    prefix = find_smallest_subnet(tuple(host_reqs), args.version)
+    result = f"Smallest subnet for {host_reqs} hosts: /{prefix}"
+    if format_type == "json":
+        output_json([{"hosts": host_reqs, "prefix": prefix}], output_file)
+    elif format_type == "csv":
+        output_csv(
+            [{"hosts": ",".join(map(str, host_reqs)), "prefix": prefix}], output_file
+        )
+    else:
+        print(result)
+
+
+def handle_overlap(
+    args: argparse.Namespace,
+    format_type: str = "text",
+    output_file: Optional[str] = None,
+    verbose: bool = True,
+) -> None:
+    """Handle the overlap command by checking for intersecting networks."""
+    networks = [n.strip() for n in args.networks.split(",")]
+    for net in networks:
+        validate_cidr(net)
+    overlaps, msg = check_overlap(networks)
+    if format_type == "json":
+        output_json(
+            [{"networks": networks, "overlaps": overlaps, "message": msg}], output_file
+        )
+    elif format_type == "csv":
+        output_csv(
+            [{"networks": ",".join(networks), "overlaps": overlaps, "message": msg}],
+            output_file,
+        )
+    else:
+        print(msg)
+
+
+def handle_eui64(
+    args: argparse.Namespace,
+    format_type: str = "text",
+    output_file: Optional[str] = None,
+    verbose: bool = True,
+) -> None:
+    """Handle the eui64 command by generating an IPv6 EUI-64 address."""
+    validate_cidr(args.prefix)
+    ipv6_addr = generate_eui64(args.mac, args.prefix)
+    result = f"EUI-64 IPv6 address: {ipv6_addr}"
+    if format_type == "json":
+        output_json(
+            [{"mac": args.mac, "prefix": args.prefix, "eui64_address": str(ipv6_addr)}],
+            output_file,
+        )
+    elif format_type == "csv":
+        output_csv(
+            [{"mac": args.mac, "prefix": args.prefix, "eui64_address": str(ipv6_addr)}],
+            output_file,
+        )
+    else:
+        print(result)
+
+
+def handle_supernet(
+    args: argparse.Namespace,
+    format_type: str = "text",
+    output_file: Optional[str] = None,
+    verbose: bool = True,
+) -> None:
+    """Handle the supernet command by finding the smallest covering supernet."""
+    nets = []
+    for n in args.networks.split(","):
+        nets.append(validate_cidr(n.strip()))
+    supernet = find_supernet(nets)
+    if format_type in ["json", "csv"]:
+        data = [{"networks": args.networks, "supernet": str(supernet)}]
+        if format_type == "json":
+            output_json(data, output_file)
+        else:
+            output_csv(data, output_file)
+    else:
+        print(f"Supernet for {args.networks}: {supernet}")
+        print_subnet_details(
+            supernet, format_type=format_type, output_file=output_file, verbose=verbose
+        )
+
+
+def handle_count(
+    args: argparse.Namespace,
+    format_type: str = "text",
+    output_file: Optional[str] = None,
+    verbose: bool = True,
+) -> None:
+    """Handle the count command for subnet details, splitting, or VLSM."""
+    # Auto-detect version if not specified
+    ip_net = validate_cidr(args.network)
+
+    if getattr(args, "hosts", None):
+        handle_vlsm(ip_net, args.hosts, format_type, output_file, verbose)
+        return
+
+    if (
+        getattr(args, "prefix", None) is not None
+        or getattr(args, "count", None) is not None
+    ):
+        if getattr(args, "count", None) is not None:
+            validate_host_count(args.count)
+        subnets = calculate_subnets(
+            ip_net,
+            count=getattr(args, "count", None),
+            prefix=getattr(args, "prefix", None),
+        )
+        if getattr(args, "count", None) is not None:
+            new_pl = ip_net.prefixlen + math.ceil(math.log2(args.count))
+            num = args.count
+        else:
+            new_pl = args.prefix
+            num = 2 ** (new_pl - ip_net.prefixlen)
+        if format_type in ["json", "csv"]:
+            subnet_data = []
+            for i, subnet in enumerate(subnets):
+                data = get_subnet_data(subnet, i)
+                data["split_info"] = f"{num} /{new_pl} subnets"
+                subnet_data.append(data)
+            if format_type == "json":
+                output_json(subnet_data, output_file)
+            else:
+                output_csv(subnet_data, output_file)
+        else:
+            print(f"Split {ip_net} into {num} /{new_pl} subnets:")
+            for i, subnet in enumerate(subnets):
+                print_subnet_details(
+                    subnet,
+                    i,
+                    format_type=format_type,
+                    output_file=output_file,
+                    verbose=verbose,
+                )
+    else:
+        print_subnet_details(
+            ip_net, format_type=format_type, output_file=output_file, verbose=verbose
+        )
+
+
+def handle_vlsm_command(
+    args: argparse.Namespace,
+    format_type: str = "text",
+    output_file: Optional[str] = None,
+    verbose: bool = True,
+) -> None:
+    """Handle the vlsm command by parsing and allocating hosts into subnets."""
+    ip_net = validate_cidr(args.network)
+    handle_vlsm(ip_net, args.hosts, format_type, output_file, verbose)
+
+
+def dispatch_command(
+    args: argparse.Namespace,
+    format_type: str = "text",
+    output_file: Optional[str] = None,
+    verbose: bool = True,
+) -> None:
+    """Dispatch a parsed command to the appropriate handler."""
+    command_handlers = {
+        "reverse": handle_reverse,
+        "overlap": handle_overlap,
+        "eui64": handle_eui64,
+        "supernet": handle_supernet,
+        "count": handle_count,
+        "vlsm": handle_vlsm_command,
+    }
+    if args.command in command_handlers:
+        command_handlers[args.command](args, format_type, output_file, verbose)
+    else:
+        raise ValueError(f"Unknown command: {args.command}")
+
+
+def main() -> int:
+    """Entry point for the CLI.
+
+    Returns:
+        Exit status code (0 for success, 1 for failure).
+    """
+    parser, args = parse_arguments()
+
+    # Interactive mode
+    if args.interactive:
+        config = load_config(args.config)
+        args = interactive_mode(config)
+        # Re-load config if specified in interactive
+        config = load_config(args.config)
+
+    # Load config
+    config = load_config(args.config)
+
+    # Apply scenario if provided
+    apply_scenario(args, config)
+
+    # Resolve presets
+    resolve_presets(args, config)
+
+    # Determine output options
+    verbose = args.verbose and not args.quiet
+    format_type = args.format
+    output_file = args.output
+
+    # Handle no subcommand by warning user and suggesting -h
+    if not hasattr(args, "command") or args.command is None:
+        print(
+            "Error: No command provided. Use -h to see the available commands.",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        dispatch_command(args, format_type, output_file, verbose)
+        return 0
+    except SubnetCalculatorError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    except ipaddress.AddressValueError as e:
+        print(f"Invalid network address: {e}", file=sys.stderr)
+        return 1
+    except ipaddress.NetmaskValueError as e:
+        print(f"Invalid netmask: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"Unexpected error: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
