@@ -29,3 +29,4 @@ subnet_calc copy.py
 subnet_utils copy.py
 setup copy.py
 .coverage
+COMMAND.md
