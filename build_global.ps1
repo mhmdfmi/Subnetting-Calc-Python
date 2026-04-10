@@ -11,7 +11,7 @@ Set-Location $scriptDir
 function Get-PythonCommand {
     if (Get-Command python -ErrorAction SilentlyContinue) { return "python" }
     if (Get-Command py -ErrorAction SilentlyContinue) { return "py -3" }
-    throw "Python interpreter not found. Install Python 3.8+ and add it to PATH."
+    throw "Python interpreter not found. Install Python 3.9+ and add it to PATH."
 }
 
 $python = Get-PythonCommand

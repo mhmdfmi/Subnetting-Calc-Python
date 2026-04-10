@@ -4,7 +4,7 @@ Version 0.1.3 — Updated April 9, 2026.
 
 A lightweight Python CLI and library for IPv4/IPv6 subnetting, VLSM allocation, supernet calculation, overlap detection, and EUI-64 generation.
 
-Supports Python 3.8+ on Windows, macOS, and Linux.
+Supports Python 3.9+ on Windows, macOS, and Linux.
 
 Optional dependencies enable nicer table output and YAML-based presets. The core library itself only requires the Python standard library.
 
@@ -150,7 +150,7 @@ pip install -e .
 
 ## Continuous integration
 
-Automated tests are provided through GitHub Actions for Windows, Linux, and macOS using Python 3.8+.
+Automated tests are provided through GitHub Actions for Windows, Linux, and macOS using Python 3.9+.
 
 ## Changelog
 
