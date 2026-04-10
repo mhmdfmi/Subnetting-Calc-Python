@@ -327,54 +327,133 @@ def resolve_presets(args: argparse.Namespace, config: Dict[str, Any]) -> None:
 
 
 def load_input_file(path: str) -> List[str]:
-    """Load a list of items from a text, CSV, JSON, or YAML input file."""
+    """Load a list of items from a text, CSV, JSON, or YAML input file.
+
+    Returns a list of non-empty, stripped strings extracted from the file.
+    Supported formats:
+      - .yaml / .yml : expects mapping or sequence; requires pyyaml
+      - .json         : expects mapping or sequence
+      - .csv          : line-delimited CSV; comments (#) and blank lines ignored
+      - other text    : line-delimited values; comments (#) and blank lines ignored
+
+    Raises:
+        ValueError: if file not found or content is not a supported structure.
+        ImportError: if YAML file is provided but pyyaml is not installed.
+    """
     if not os.path.exists(path):
         raise ValueError(f"Input file not found: {path}")
 
     extension = os.path.splitext(path)[1].lower()
     with open(path, "r", encoding="utf-8") as f:
-        if extension in [".yaml", ".yml"]:
+        if extension in (".yaml", ".yml"):
             if not HAS_YAML:
                 raise ImportError(
                     "YAML input support requires 'pyyaml'. Install with: pip install pyyaml"
                 )
-            content = yaml.safe_load(f)
+            content: Any = yaml.safe_load(f)
         elif extension == ".json":
             content = json.load(f)
         else:
+            # Read raw non-JSON/YAML content and strip comments/blank lines
             raw_lines = [
                 line.strip()
                 for line in f
                 if line.strip() and not line.strip().startswith("#")
             ]
             if extension == ".csv":
-                items: List[str] = []
+                collected_items: List[str] = []
                 for line in raw_lines:
-                    items.extend(
+                    collected_items.extend(
                         [item.strip() for item in line.split(",") if item.strip()]
                     )
-                return items
+                return collected_items
             return raw_lines
 
+    # At this point content is from JSON or YAML
     if content is None:
         return []
+
+    # If mapping/dict, try to extract common keys or flatten values
     if isinstance(content, dict):
         if "networks" in content:
-            return [str(item).strip() for item in content["networks"]]
+            return [
+                str(item).strip() for item in content["networks"] if item is not None
+            ]
         if "hosts" in content:
-            return [str(item).strip() for item in content["hosts"]]
-        items: List[str] = []
+            return [str(item).strip() for item in content["hosts"] if item is not None]
+
+        # collected_items: List[str] = []
         for value in content.values():
             if isinstance(value, (list, tuple)):
-                items.extend([str(item).strip() for item in value])
+                collected_items.extend(
+                    [str(item).strip() for item in value if item is not None]
+                )
             else:
-                items.append(str(value).strip())
-        return [item for item in items if item]
+                collected_items.append(str(value).strip())
+        return [item for item in collected_items if item]
+
+    # If sequence, return flattened, stripped strings
     if isinstance(content, (list, tuple)):
-        return [str(item).strip() for item in content if item]
+        return [
+            str(item).strip()
+            for item in content
+            if item is not None and str(item).strip()
+        ]
+
     raise ValueError(
         "Input file must contain a list, mapping, or line-delimited values"
     )
+
+
+# def load_input_file(path: str) -> List[str]:
+#     """Load a list of items from a text, CSV, JSON, or YAML input file."""
+#     if not os.path.exists(path):
+#         raise ValueError(f"Input file not found: {path}")
+
+#     extension = os.path.splitext(path)[1].lower()
+#     with open(path, "r", encoding="utf-8") as f:
+#         if extension in [".yaml", ".yml"]:
+#             if not HAS_YAML:
+#                 raise ImportError(
+#                     "YAML input support requires 'pyyaml'. Install with: pip install pyyaml"
+#                 )
+#             content = yaml.safe_load(f)
+#         elif extension == ".json":
+#             content = json.load(f)
+#         else:
+#             raw_lines = [
+#                 line.strip()
+#                 for line in f
+#                 if line.strip() and not line.strip().startswith("#")
+#             ]
+#             if extension == ".csv":
+#                 items: List[str] = []
+#                 for line in raw_lines:
+#                     items.extend(
+#                         [item.strip() for item in line.split(",") if item.strip()]
+#                     )
+#                 return items
+#             return raw_lines
+
+#     if content is None:
+#         return []
+#     if isinstance(content, dict):
+#         if "networks" in content:
+#             return [str(item).strip() for item in content["networks"]]
+#         if "hosts" in content:
+#             return [str(item).strip() for item in content["hosts"]]
+#         items: List[str] = []
+#         for value in content.values():
+#             if isinstance(value, (list, tuple)):
+#                 items.extend([str(item).strip() for item in value])
+#             else:
+#                 items.append(str(value).strip())
+#         return [item for item in items if item]
+#     if isinstance(content, (list, tuple)):
+#         return [str(item).strip() for item in content if item]
+#     raise ValueError(
+#         "Input file must contain a list, mapping, or line-delimited values"
+#     )
 
 
 def resolve_input_args(args: argparse.Namespace) -> None:
