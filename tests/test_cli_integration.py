@@ -1,9 +1,9 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 from subnet_calc import main
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
 def test_cli_count_split(monkeypatch, capsys):
@@ -183,4 +183,3 @@ def test_cli_summarize_markdown_output(tmp_path, monkeypatch):
     content = output_file.read_text(encoding="utf-8")
     assert "| networks |" in content
     assert "| supernet |" in content
-

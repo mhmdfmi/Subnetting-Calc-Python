@@ -3,8 +3,6 @@ import os
 import sys
 import pytest
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 from subnet_utils import (
     calculate_subnets,
     find_smallest_subnet,
@@ -25,13 +23,15 @@ from subnet_utils import (
     output_text,
     output_json,
     output_csv,
-    output_table,
+    # output_table,
     network_to_range,
     summarize_address_range,
     compare_networks,
     compress_ipv6,
     expand_ipv6,
 )
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
 def test_calculate_subnets_iterator():
@@ -146,39 +146,54 @@ def test_validate_hosts_in_network_exceed():
 
 
 def test_get_classful():
-    assert get_classful(24) == 'Class C (/17-/24)'
+    assert get_classful(24) == "Class C (/17-/24)"
 
 
 def test_get_subnet_data():
     network = ipaddress.ip_network("192.168.1.0/24")
     data = get_subnet_data(network)
-    assert data['network'] == '192.168.1.0/24'
-    assert data['version'] == 'IPv4'
+    assert data["network"] == "192.168.1.0/24"
+    assert data["version"] == "IPv4"
 
 
 def test_output_text(capsys):
-    data = {'index': '1', 'name': 'test', 'network': '192.168.1.0/24', 'version': 'IPv4', 'class': 'Class C (/17-/24)', 'netmask': '255.255.255.0', 'broadcast': '192.168.1.255', 'total_addresses': 256, 'usable_hosts': 254, 'first_host': '192.168.1.1', 'last_host': '192.168.1.254'}
+    data = {
+        "index": "1",
+        "name": "test",
+        "network": "192.168.1.0/24",
+        "version": "IPv4",
+        "class": "Class C (/17-/24)",
+        "netmask": "255.255.255.0",
+        "broadcast": "192.168.1.255",
+        "total_addresses": 256,
+        "usable_hosts": 254,
+        "first_host": "192.168.1.1",
+        "last_host": "192.168.1.254",
+    }
     output_text(data, verbose=True)
     captured = capsys.readouterr()
-    assert 'Network: 192.168.1.0/24' in captured.out
+    assert "Network: 192.168.1.0/24" in captured.out
 
 
 def test_output_json(capsys):
-    data_list = [{'network': '192.168.1.0/24'}]
+    data_list = [{"network": "192.168.1.0/24"}]
     output_json(data_list)
     captured = capsys.readouterr()
     assert '"network": "192.168.1.0/24"' in captured.out
 
 
 def test_output_csv(capsys):
-    data_list = [{'network': '192.168.1.0/24', 'version': 'IPv4'}]
+    data_list = [{"network": "192.168.1.0/24", "version": "IPv4"}]
     output_csv(data_list)
     captured = capsys.readouterr()
-    assert 'network,version' in captured.out
+    assert "network,version" in captured.out
 
 
 def test_find_supernet_ipv6():
-    nets = [ipaddress.ip_network("2001:db8::/32"), ipaddress.ip_network("2001:db9::/32")]
+    nets = [
+        ipaddress.ip_network("2001:db8::/32"),
+        ipaddress.ip_network("2001:db9::/32"),
+    ]
     supernet = find_supernet(nets)
     assert supernet.prefixlen == 31
 
@@ -203,12 +218,8 @@ def test_compare_networks_contains():
 
 
 def test_expand_ipv6():
-    assert (
-        expand_ipv6("2001:db8::1")
-        == "2001:0db8:0000:0000:0000:0000:0000:0001"
-    )
+    assert expand_ipv6("2001:db8::1") == "2001:0db8:0000:0000:0000:0000:0000:0001"
 
 
 def test_compress_ipv6():
     assert compress_ipv6("2001:0db8:0000:0000:0000:0000:0000:0001") == "2001:db8::1"
-

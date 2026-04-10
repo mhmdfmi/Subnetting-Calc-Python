@@ -35,7 +35,7 @@ from subnet_utils import (
     output_json,
     output_csv,
     output_table,
-    output_text,
+    # output_text,
     output_markdown,
     output_pretty,
     get_subnet_data,
@@ -235,23 +235,22 @@ def parse_arguments() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
         help="End IP for range-to-network conversion (e.g. 192.168.1.254)",
     )
 
-    compare_parser = subparsers.add_parser(
-        "compare", help="Compare two CIDR networks")
-    compare_parser.add_argument(
-        "--network1", required=False, help="First network CIDR"
-    )
+    compare_parser = subparsers.add_parser("compare", help="Compare two CIDR networks")
+    compare_parser.add_argument("--network1", required=False, help="First network CIDR")
     compare_parser.add_argument(
         "--network2", required=False, help="Second network CIDR"
     )
 
     expand_parser = subparsers.add_parser(
-        "expand", help="Expand an IPv6 address to full notation")
+        "expand", help="Expand an IPv6 address to full notation"
+    )
     expand_parser.add_argument(
         "--address", required=True, help="IPv6 address to expand"
     )
 
     compress_parser = subparsers.add_parser(
-        "compress", help="Compress an IPv6 address to shortest notation")
+        "compress", help="Compress an IPv6 address to shortest notation"
+    )
     compress_parser.add_argument(
         "--address", required=True, help="IPv6 address to compress"
     )
@@ -278,9 +277,10 @@ def parse_arguments() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
     eui64_parser.add_argument(
         "--prefix", required=True, help="IPv6 prefix (e.g. 2001:db8::/64)"
     )
-    version_parser = subparsers.add_parser(
-        "version", help="Show package version and release metadata"
-    )
+    # version_parser = subparsers.add_parser(
+    #     "version", help="Show package version and release metadata"
+    # )
+    subparsers.add_parser("version", help="Show package version and release metadata")
 
     # Parse the remaining args
     remaining_args = parser.parse_args(remaining, namespace=args)
@@ -302,7 +302,10 @@ def apply_scenario(args: argparse.Namespace, config: Dict[str, Any]) -> None:
         for key, value in scenario.items():
             if getattr(args, key, None) is None:
                 setattr(args, key, value)
-        if getattr(args, "ip_version", None) is None and getattr(args, "version", None) is not None:
+        if (
+            getattr(args, "ip_version", None) is None
+            and getattr(args, "version", None) is not None
+        ):
             args.ip_version = args.version
         if args.command is None:
             if "command" in scenario:
@@ -339,11 +342,17 @@ def load_input_file(path: str) -> List[str]:
         elif extension == ".json":
             content = json.load(f)
         else:
-            raw_lines = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+            raw_lines = [
+                line.strip()
+                for line in f
+                if line.strip() and not line.strip().startswith("#")
+            ]
             if extension == ".csv":
                 items: List[str] = []
                 for line in raw_lines:
-                    items.extend([item.strip() for item in line.split(",") if item.strip()])
+                    items.extend(
+                        [item.strip() for item in line.split(",") if item.strip()]
+                    )
                 return items
             return raw_lines
 
@@ -363,7 +372,9 @@ def load_input_file(path: str) -> List[str]:
         return [item for item in items if item]
     if isinstance(content, (list, tuple)):
         return [str(item).strip() for item in content if item]
-    raise ValueError("Input file must contain a list, mapping, or line-delimited values")
+    raise ValueError(
+        "Input file must contain a list, mapping, or line-delimited values"
+    )
 
 
 def resolve_input_args(args: argparse.Namespace) -> None:
@@ -432,7 +443,9 @@ def validate_required_args(args: argparse.Namespace) -> None:
         raise ValueError(f"{args.command} command requires --networks or --input file")
     if args.command == "compare":
         if not getattr(args, "network1", None) or not getattr(args, "network2", None):
-            raise ValueError("compare command requires --network1 and --network2 or --input file")
+            raise ValueError(
+                "compare command requires --network1 and --network2 or --input file"
+            )
     if args.command == "reverse" and not getattr(args, "hosts", None):
         raise ValueError("reverse command requires --hosts or --input file")
 
@@ -539,7 +552,9 @@ def interactive_mode(config: Dict[str, Any]) -> argparse.Namespace:
             ).strip()
 
         elif command == "range":
-            args.network = input("Enter CIDR network or leave blank to use range conversion: ").strip()
+            args.network = input(
+                "Enter CIDR network or leave blank to use range conversion: "
+            ).strip()
             if not args.network:
                 args.start = input("Start IP: ").strip()
                 args.end = input("End IP: ").strip()
@@ -556,7 +571,9 @@ def interactive_mode(config: Dict[str, Any]) -> argparse.Namespace:
 
         # Output options
         format_choice = (
-            input("Output format (text/table/json/csv/markdown/pretty) [text]: ").strip().lower()
+            input("Output format (text/table/json/csv/markdown/pretty) [text]: ")
+            .strip()
+            .lower()
         )
         if format_choice in ["table", "json", "csv", "markdown", "pretty"]:
             args.format = format_choice
@@ -636,9 +653,7 @@ def handle_eui64(
     validate_cidr(args.prefix)
     ipv6_addr = generate_eui64(args.mac, args.prefix)
     result = f"EUI-64 IPv6 address: {ipv6_addr}"
-    data = [
-        {"mac": args.mac, "prefix": args.prefix, "eui64_address": str(ipv6_addr)}
-    ]
+    data = [{"mac": args.mac, "prefix": args.prefix, "eui64_address": str(ipv6_addr)}]
     if format_type == "json":
         output_json(data, output_file)
     elif format_type == "csv":
@@ -677,6 +692,7 @@ def handle_supernet(
             supernet, format_type=format_type, output_file=output_file, verbose=verbose
         )
 
+
 def handle_version(
     args: argparse.Namespace,
     format_type: str = "text",
@@ -700,6 +716,7 @@ def handle_version(
     else:
         print(f"subnet-calc version {__version__}")
         print(f"Python: {data['python']}")
+
 
 def handle_summarize(
     args: argparse.Namespace,
@@ -725,6 +742,7 @@ def handle_summarize(
             supernet, format_type=format_type, output_file=output_file, verbose=verbose
         )
 
+
 def handle_range(
     args: argparse.Namespace,
     format_type: str = "text",
@@ -745,9 +763,7 @@ def handle_range(
         ]
     elif getattr(args, "start", None) and getattr(args, "end", None):
         nets = summarize_address_range(args.start, args.end)
-        data = [
-            {"summary": ", ".join(str(net) for net in nets), "count": len(nets)}
-        ]
+        data = [{"summary": ", ".join(str(net) for net in nets), "count": len(nets)}]
     else:
         raise ValueError("Provide either --network or both --start and --end")
 
@@ -768,6 +784,7 @@ def handle_range(
         else:
             print(f"Summarized networks: {data[0]['summary']}")
             print(f"CIDR count: {data[0]['count']}")
+
 
 def handle_compare(
     args: argparse.Namespace,
@@ -795,6 +812,7 @@ def handle_compare(
     else:
         print(message)
 
+
 def handle_expand(
     args: argparse.Namespace,
     format_type: str = "text",
@@ -815,6 +833,7 @@ def handle_expand(
     else:
         print(f"Expanded IPv6: {expanded}")
 
+
 def handle_compress(
     args: argparse.Namespace,
     format_type: str = "text",
@@ -834,6 +853,7 @@ def handle_compress(
         output_pretty(data, output_file)
     else:
         print(f"Compressed IPv6: {compressed}")
+
 
 def handle_count(
     args: argparse.Namespace,
@@ -977,8 +997,14 @@ def main() -> int:
         )
         return 1
 
+    # if output_file is None and format_type in ["json", "csv", "markdown"]:
+    #     output_file = f"subnet-calc-{args.command}.{ 'md' if format_type == 'markdown' else format_type }"
+    #     if not args.quiet:
+    #         print(f"Writing output to {output_file}")
+
     if output_file is None and format_type in ["json", "csv", "markdown"]:
-        output_file = f"subnet-calc-{args.command}.{ 'md' if format_type == 'markdown' else format_type }"
+        ext = "md" if format_type == "markdown" else format_type
+        output_file = f"subnet-calc-{args.command}.{ext}"
         if not args.quiet:
             print(f"Writing output to {output_file}")
 

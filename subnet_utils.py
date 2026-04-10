@@ -10,7 +10,7 @@ import json
 import csv
 import sys
 from functools import lru_cache
-from typing import List, Tuple, Optional, Union, Dict, Any, Iterator, cast
+from typing import List, Tuple, Optional, Union, Dict, Any, Iterator  # , cast
 
 try:
     from tabulate import tabulate  # type: ignore[import]
@@ -104,37 +104,83 @@ def validate_hosts_in_network(
 def validate_vlsm_allocation(
     network: Union[ipaddress.IPv4Network, ipaddress.IPv6Network], hosts: List[int]
 ) -> None:
-    """Validate VLSM allocation doesn't exceed the parent network.
+    """Dispatch VLSM validation to IPv4 or IPv6 specific implementation."""
+    if isinstance(network, ipaddress.IPv4Network):
+        _validate_vlsm_ipv4(network, hosts)
+    else:
+        _validate_vlsm_ipv6(network, hosts)
 
-    This checks whether the requested subnets can fit inside the parent network
-    before any allocations occur.
 
-    Parameters:
-        network: Parent IPv4 or IPv6 network.
-        hosts: A list of required host counts for each subnet.
-
-    Raises:
-        VLSMExceedError: If the parent network cannot allocate one or more subnets.
-    """
-    remaining: Union[ipaddress.IPv4Network, ipaddress.IPv6Network] = network
+def _validate_vlsm_ipv4(network: ipaddress.IPv4Network, hosts: List[int]) -> None:
+    remaining: ipaddress.IPv4Network = network
     for req in sorted(hosts, reverse=True):
-        bits = math.ceil(math.log2(req + (2 if network.version == 4 else 1)))
+        bits = math.ceil(math.log2(req + 2))  # IPv4 needs +2 for network/broadcast
         prefix = remaining.max_prefixlen - bits
         if prefix < network.prefixlen:
             raise VLSMExceedError(
                 f"VLSM allocation requires prefix /{prefix} but parent is /{network.prefixlen}"
             )
         try:
-            if isinstance(remaining, ipaddress.IPv4Network):
-                subnet = next(remaining.subnets(new_prefix=prefix))
-                remaining = next(remaining.address_exclude(subnet))
-            else:
-                subnet = next(remaining.subnets(new_prefix=prefix))
-                remaining = next(remaining.address_exclude(subnet))
+            subnet = next(remaining.subnets(new_prefix=prefix))
+            remaining = next(remaining.address_exclude(subnet))
         except StopIteration:
             raise VLSMExceedError(
                 f"Cannot allocate subnet for {req} hosts in remaining space {remaining}"
             )
+
+
+def _validate_vlsm_ipv6(network: ipaddress.IPv6Network, hosts: List[int]) -> None:
+    remaining: ipaddress.IPv6Network = network
+    for req in sorted(hosts, reverse=True):
+        bits = math.ceil(math.log2(req + 1))  # IPv6 does not use broadcast
+        prefix = remaining.max_prefixlen - bits
+        if prefix < network.prefixlen:
+            raise VLSMExceedError(
+                f"VLSM allocation requires prefix /{prefix} but parent is /{network.prefixlen}"
+            )
+        try:
+            subnet = next(remaining.subnets(new_prefix=prefix))
+            remaining = next(remaining.address_exclude(subnet))
+        except StopIteration:
+            raise VLSMExceedError(
+                f"Cannot allocate subnet for {req} hosts in remaining space {remaining}"
+            )
+
+
+# def validate_vlsm_allocation(
+#     network: Union[ipaddress.IPv4Network, ipaddress.IPv6Network], hosts: List[int]
+# ) -> None:
+#     """Validate VLSM allocation doesn't exceed the parent network.
+
+#     This checks whether the requested subnets can fit inside the parent network
+#     before any allocations occur.
+
+#     Parameters:
+#         network: Parent IPv4 or IPv6 network.
+#         hosts: A list of required host counts for each subnet.
+
+#     Raises:
+#         VLSMExceedError: If the parent network cannot allocate one or more subnets.
+#     """
+#     remaining: Union[ipaddress.IPv4Network, ipaddress.IPv6Network] = network
+#     for req in sorted(hosts, reverse=True):
+#         bits = math.ceil(math.log2(req + (2 if network.version == 4 else 1)))
+#         prefix = remaining.max_prefixlen - bits
+#         if prefix < network.prefixlen:
+#             raise VLSMExceedError(
+#                 f"VLSM allocation requires prefix /{prefix} but parent is /{network.prefixlen}"
+#             )
+#         try:
+#             if isinstance(remaining, ipaddress.IPv4Network):
+#                 subnet = next(remaining.subnets(new_prefix=prefix))
+#                 remaining = next(remaining.address_exclude(subnet))
+#             else:
+#                 subnet = next(remaining.subnets(new_prefix=prefix))
+#                 remaining = next(remaining.address_exclude(subnet))
+#         except StopIteration:
+#             raise VLSMExceedError(
+#                 f"Cannot allocate subnet for {req} hosts in remaining space {remaining}"
+#             )
 
 
 def validate_mixed_versions(
@@ -456,9 +502,7 @@ def output_pretty(
         Console().print(table)
 
 
-def output_excel(
-    data_list: List[Dict[str, Any]], output_file: str
-) -> None:
+def output_excel(data_list: List[Dict[str, Any]], output_file: str) -> None:
     """Output subnet data as an Excel workbook."""
     if not HAS_OPENPYXL:
         raise ImportError(
@@ -606,7 +650,9 @@ def generate_eui64(mac: str, prefix: str) -> ipaddress.IPv6Address:
     return ipaddress.IPv6Address(full_int)
 
 
-def validate_ip_address(address: str) -> Union[ipaddress.IPv4Address, ipaddress.IPv6Address]:
+def validate_ip_address(
+    address: str,
+) -> Union[ipaddress.IPv4Address, ipaddress.IPv6Address]:
     """Validate a single IP address string."""
     try:
         return ipaddress.ip_address(address)
@@ -615,7 +661,7 @@ def validate_ip_address(address: str) -> Union[ipaddress.IPv4Address, ipaddress.
 
 
 def network_to_range(
-    network: Union[ipaddress.IPv4Network, ipaddress.IPv6Network]
+    network: Union[ipaddress.IPv4Network, ipaddress.IPv6Network],
 ) -> Tuple[str, str, int]:
     """Return the first and last usable hosts for a network."""
     total_hosts = network.num_addresses
@@ -645,7 +691,9 @@ def summarize_address_range(
     if type(start_ip) is not type(end_ip):
         raise MixedIPVersionError("Start and end addresses must be the same IP version")
     if int(end_ip) < int(start_ip):
-        raise InvalidCIDRError("End address must be greater than or equal to start address")
+        raise InvalidCIDRError(
+            "End address must be greater than or equal to start address"
+        )
     return list(ipaddress.summarize_address_range(start_ip, end_ip))
 
 
@@ -653,15 +701,51 @@ def compare_networks(net1: str, net2: str) -> str:
     """Compare two CIDR networks and describe their relationship."""
     network1 = validate_cidr(net1)
     network2 = validate_cidr(net2)
+
+    # If they are exactly equal
     if network1 == network2:
         return f"Networks are identical: {network1}"
-    if network1.supernet_of(network2):
-        return f"{network1} contains {network2}"
-    if network2.supernet_of(network1):
-        return f"{network2} contains {network1}"
-    if network1.overlaps(network2):
-        return f"Networks overlap: {network1} and {network2}"
+
+    # Ensure we only call supernet_of/overlaps on same IP version
+    if isinstance(network1, ipaddress.IPv4Network) and isinstance(
+        network2, ipaddress.IPv4Network
+    ):
+        if network1.supernet_of(network2):
+            return f"{network1} contains {network2}"
+        if network2.supernet_of(network1):
+            return f"{network2} contains {network1}"
+        if network1.overlaps(network2):
+            return f"Networks overlap: {network1} and {network2}"
+        return f"Networks are distinct: {network1} and {network2}"
+
+    if isinstance(network1, ipaddress.IPv6Network) and isinstance(
+        network2, ipaddress.IPv6Network
+    ):
+        if network1.supernet_of(network2):
+            return f"{network1} contains {network2}"
+        if network2.supernet_of(network1):
+            return f"{network2} contains {network1}"
+        if network1.overlaps(network2):
+            return f"Networks overlap: {network1} and {network2}"
+        return f"Networks are distinct: {network1} and {network2}"
+
+    # Different IP versions cannot contain/overlap each other
     return f"Networks are distinct: {network1} and {network2}"
+
+
+# def compare_networks(net1: str, net2: str) -> str:
+#     """Compare two CIDR networks and describe their relationship."""
+#     network1 = validate_cidr(net1)
+#     network2 = validate_cidr(net2)
+#     if network1 == network2:
+#         return f"Networks are identical: {network1}"
+#     if network1.supernet_of(network2):
+#         return f"{network1} contains {network2}"
+#     if network2.supernet_of(network1):
+#         return f"{network2} contains {network1}"
+#     if network1.overlaps(network2):
+#         return f"Networks overlap: {network1} and {network2}"
+#     return f"Networks are distinct: {network1} and {network2}"
 
 
 def expand_ipv6(address: str) -> str:
@@ -752,36 +836,30 @@ def handle_vlsm(
     output_file: Optional[str] = None,
     verbose: bool = True,
 ) -> None:
-    """Handle VLSM allocation.
+    """Handle VLSM allocation and dispatch output formatting.
 
-    Parameters:
-        network: Parent network for the VLSM allocation.
-        hosts_str: Hosts requirement string.
-        format_type: Output format (text, table, json, csv).
-        output_file: Optional output file path.
-        verbose: Whether to include verbose details.
+    Helper functions expected elsewhere:
+      - parse_hosts(hosts_str) -> Tuple[List[int], List[Optional[str]]]
+      - validate_hosts_in_network(network, host_reqs)
+      - validate_vlsm_allocation(network, host_reqs)
+      - get_subnet_data(subnet, index: int, name: str) -> Dict[str, Any]
+      - output_json, output_csv, output_table, output_markdown, output_pretty, output_text
     """
     host_reqs, host_names = parse_hosts(hosts_str)
     validate_hosts_in_network(network, host_reqs)
     validate_vlsm_allocation(network, host_reqs)
-    host_reqs_with_names = sorted(
-        zip(host_reqs, host_names), key=lambda pair: pair[0], reverse=True
+    # host_names may contain None; pair them and sort by host count desc
+    host_reqs_with_names: List[Tuple[int, Optional[str]]] = sorted(
+        list(zip(host_reqs, host_names)), key=lambda pair: pair[0], reverse=True
     )
-    remaining = network
+
     title = f"VLSM for {hosts_str} in {network}:"
     print(title)
 
-    subnet_data: List[Dict[str, Any]] = []
-    for i, (req, name) in enumerate(host_reqs_with_names):
-        bits = math.ceil(math.log2(req + (2 if network.version == 4 else 1)))
-        prefix = remaining.max_prefixlen - bits
-        if isinstance(remaining, ipaddress.IPv4Network):
-            subnet = next(remaining.subnets(new_prefix=prefix))
-            remaining = cast(Union[ipaddress.IPv4Network, ipaddress.IPv6Network], next(remaining.address_exclude(subnet)))
-        else:
-            subnet = next(remaining.subnets(new_prefix=prefix))
-            remaining = cast(Union[ipaddress.IPv4Network, ipaddress.IPv6Network], next(remaining.address_exclude(subnet)))
-        subnet_data.append(get_subnet_data(subnet, i, name))
+    if isinstance(network, ipaddress.IPv4Network):
+        subnet_data = _handle_vlsm_ipv4(network, host_reqs_with_names)
+    else:
+        subnet_data = _handle_vlsm_ipv6(network, host_reqs_with_names)
 
     if format_type == "json":
         output_json(subnet_data, output_file)
@@ -796,3 +874,94 @@ def handle_vlsm(
     else:  # text
         for data in subnet_data:
             output_text(data, verbose)
+
+
+def _handle_vlsm_ipv4(
+    network: ipaddress.IPv4Network,
+    host_reqs_with_names: List[Tuple[int, Optional[str]]],
+) -> List[Dict[str, Any]]:
+    remaining: ipaddress.IPv4Network = network
+    subnet_data: List[Dict[str, Any]] = []
+    for i, (req, name) in enumerate(host_reqs_with_names):
+        bits = math.ceil(math.log2(req + 2))  # IPv4 needs +2 for network/broadcast
+        prefix = remaining.max_prefixlen - bits
+        subnet = next(remaining.subnets(new_prefix=prefix))
+        remaining = next(remaining.address_exclude(subnet))
+        normalized_name: str = name or "unnamed"
+        subnet_data.append(get_subnet_data(subnet, i, normalized_name))
+    return subnet_data
+
+
+def _handle_vlsm_ipv6(
+    network: ipaddress.IPv6Network,
+    host_reqs_with_names: List[Tuple[int, Optional[str]]],
+) -> List[Dict[str, Any]]:
+    remaining: ipaddress.IPv6Network = network
+    subnet_data: List[Dict[str, Any]] = []
+    for i, (req, name) in enumerate(host_reqs_with_names):
+        bits = math.ceil(math.log2(req + 1))  # IPv6 does not use broadcast
+        prefix = remaining.max_prefixlen - bits
+        subnet = next(remaining.subnets(new_prefix=prefix))
+        remaining = next(remaining.address_exclude(subnet))
+        normalized_name: str = name or "unnamed"
+        subnet_data.append(get_subnet_data(subnet, i, normalized_name))
+    return subnet_data
+
+
+# def handle_vlsm(
+#     network: Union[ipaddress.IPv4Network, ipaddress.IPv6Network],
+#     hosts_str: str,
+#     format_type: str = "text",
+#     output_file: Optional[str] = None,
+#     verbose: bool = True,
+# ) -> None:
+#     """Handle VLSM allocation.
+
+#     Parameters:
+#         network: Parent network for the VLSM allocation.
+#         hosts_str: Hosts requirement string.
+#         format_type: Output format (text, table, json, csv).
+#         output_file: Optional output file path.
+#         verbose: Whether to include verbose details.
+#     """
+#     host_reqs, host_names = parse_hosts(hosts_str)
+#     validate_hosts_in_network(network, host_reqs)
+#     validate_vlsm_allocation(network, host_reqs)
+#     host_reqs_with_names = sorted(
+#         zip(host_reqs, host_names), key=lambda pair: pair[0], reverse=True
+#     )
+#     remaining = network
+#     title = f"VLSM for {hosts_str} in {network}:"
+#     print(title)
+
+#     subnet_data: List[Dict[str, Any]] = []
+#     for i, (req, name) in enumerate(host_reqs_with_names):
+#         bits = math.ceil(math.log2(req + (2 if network.version == 4 else 1)))
+#         prefix = remaining.max_prefixlen - bits
+#         if isinstance(remaining, ipaddress.IPv4Network):
+#             subnet = next(remaining.subnets(new_prefix=prefix))
+#             remaining = cast(
+#                 Union[ipaddress.IPv4Network, ipaddress.IPv6Network],
+#                 next(remaining.address_exclude(subnet)),
+#             )
+#         else:
+#             subnet = next(remaining.subnets(new_prefix=prefix))
+#             remaining = cast(
+#                 Union[ipaddress.IPv4Network, ipaddress.IPv6Network],
+#                 next(remaining.address_exclude(subnet)),
+#             )
+#         subnet_data.append(get_subnet_data(subnet, i, name))
+
+#     if format_type == "json":
+#         output_json(subnet_data, output_file)
+#     elif format_type == "csv":
+#         output_csv(subnet_data, output_file)
+#     elif format_type == "table":
+#         output_table(subnet_data, output_file)
+#     elif format_type == "markdown":
+#         output_markdown(subnet_data, output_file)
+#     elif format_type == "pretty":
+#         output_pretty(subnet_data, output_file)
+#     else:  # text
+#         for data in subnet_data:
+#             output_text(data, verbose)
