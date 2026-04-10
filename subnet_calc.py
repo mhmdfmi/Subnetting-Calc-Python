@@ -146,10 +146,13 @@ def parse_arguments() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
   subnet-calc count --network 192.168.1.0/24 --count 4
   subnet-calc count --network 192.168.1.0/24 --prefix 26
   subnet-calc count --network 192.168.1.0/24 --hosts "100,50,20"
-  subnet-calc vlsm --network 10.0.0.0/16 --hosts "500,200,100,50"
+  subnet-calc compare --network1 192.168.1.0/24 --network2 192.168.1.0/25
   subnet-calc supernet --networks "192.168.1.0/24,192.168.2.0/24"
+  subnet-calc summarize --networks "192.168.1.0/24,192.168.2.0/24"
+  subnet-calc range --network 192.168.1.0/24
   subnet-calc reverse --hosts "100,50" --ip-version v4
   subnet-calc overlap --networks "192.168.1.0/24,192.168.2.0/24"
+  subnet-calc vlsm --network 10.0.0.0/16 --hosts "500,200,100,50"
   subnet-calc eui64 --mac "00:11:22:33:44:55" --prefix "2001:db8::/64"
   subnet-calc --config config.yaml --scenario home_vlsm
   subnet-calc --config config.yaml --scenario office_split
@@ -160,9 +163,9 @@ def parse_arguments() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
   subnet-calc count --network 2001:db8::/32 --ip-version v6 --count 2
   subnet-calc vlsm --network 2001:db8::/48 --hosts "1000,500" --ip-version v6
   subnet-calc eui64 --mac "00:11:22:33:44:55" --prefix "2001:db8::/64"
-  subnet-calc summarize --networks "192.168.1.0/24,192.168.2.0/24"
-  subnet-calc range --network 192.168.1.0/24
-  subnet-calc compare --network1 192.168.1.0/24 --network2 192.168.1.0/25
+  subnet-calc summarize --networks "2001:db8::/64,2001:db8:1::/64"
+  subnet-calc range --network 2001:db8::/64
+  subnet-calc compare --network1 2001:db8::/64 --network2 2001:db8::/32
   subnet-calc expand --address 2001:db8::1
   subnet-calc compress --address 2001:0db8:0000:0000:0000:0000:0000:0001
 
@@ -277,9 +280,6 @@ def parse_arguments() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
     eui64_parser.add_argument(
         "--prefix", required=True, help="IPv6 prefix (e.g. 2001:db8::/64)"
     )
-    # version_parser = subparsers.add_parser(
-    #     "version", help="Show package version and release metadata"
-    # )
     subparsers.add_parser("version", help="Show package version and release metadata")
 
     # Parse the remaining args
@@ -403,57 +403,6 @@ def load_input_file(path: str) -> List[str]:
     raise ValueError(
         "Input file must contain a list, mapping, or line-delimited values"
     )
-
-
-# def load_input_file(path: str) -> List[str]:
-#     """Load a list of items from a text, CSV, JSON, or YAML input file."""
-#     if not os.path.exists(path):
-#         raise ValueError(f"Input file not found: {path}")
-
-#     extension = os.path.splitext(path)[1].lower()
-#     with open(path, "r", encoding="utf-8") as f:
-#         if extension in [".yaml", ".yml"]:
-#             if not HAS_YAML:
-#                 raise ImportError(
-#                     "YAML input support requires 'pyyaml'. Install with: pip install pyyaml"
-#                 )
-#             content = yaml.safe_load(f)
-#         elif extension == ".json":
-#             content = json.load(f)
-#         else:
-#             raw_lines = [
-#                 line.strip()
-#                 for line in f
-#                 if line.strip() and not line.strip().startswith("#")
-#             ]
-#             if extension == ".csv":
-#                 items: List[str] = []
-#                 for line in raw_lines:
-#                     items.extend(
-#                         [item.strip() for item in line.split(",") if item.strip()]
-#                     )
-#                 return items
-#             return raw_lines
-
-#     if content is None:
-#         return []
-#     if isinstance(content, dict):
-#         if "networks" in content:
-#             return [str(item).strip() for item in content["networks"]]
-#         if "hosts" in content:
-#             return [str(item).strip() for item in content["hosts"]]
-#         items: List[str] = []
-#         for value in content.values():
-#             if isinstance(value, (list, tuple)):
-#                 items.extend([str(item).strip() for item in value])
-#             else:
-#                 items.append(str(value).strip())
-#         return [item for item in items if item]
-#     if isinstance(content, (list, tuple)):
-#         return [str(item).strip() for item in content if item]
-#     raise ValueError(
-#         "Input file must contain a list, mapping, or line-delimited values"
-#     )
 
 
 def resolve_input_args(args: argparse.Namespace) -> None:

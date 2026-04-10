@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=65.0", "wheel"]
+requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,25 +8,22 @@ version = "0.1.3"
 description = "CLI and library for IPv4/IPv6 subnet calculations, VLSM, supernet, overlap, and EUI-64 generation."
 readme = "README.md"
 requires-python = ">=3.8"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
   { name = "Muhamad Fahmi", email = "muhamadfahmi3240@gmail.com" }
 ]
 keywords = ["subnet", "network", "ipv4", "ipv6", "vlsm", "networking"]
 classifiers = [
   "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent"
 ]
+
 [tool.setuptools]
 py-modules = ["subnet_calc", "subnet_utils"]
 
 [project.optional-dependencies]
 dev = ["tabulate", "rich", "pyyaml", "pytest>=7.0", "pytest-cov", "black", "flake8", "mypy"]
-
-[project.urls]
-Homepage = "https://example.com/subnet-calculator"
-"Bug Tracker" = "https://example.com/subnet-calculator/issues"
 
 [project.scripts]
 subnet-calc = "subnet_calc:main"

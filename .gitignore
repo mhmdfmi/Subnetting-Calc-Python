@@ -30,3 +30,4 @@ subnet_utils copy.py
 setup copy.py
 .coverage
 COMMAND.md
+pyproject copy.toml
